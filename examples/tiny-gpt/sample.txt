@@ -1,0 +1,10 @@
+ArafatAI is a personal AI system.
+The goal is to learn by building every layer by hand.
+The browser agent can click, type, upload, inspect, and take screenshots.
+The memory agent saves lessons from real debugging.
+The eval agent checks whether an output is good enough.
+The coding agent proposes patches, but the human reviews and merges.
+Safe self-improvement means branch, patch, test, pull request, and human approval.
+Tiny GPT teaches tokenizer, attention, loss, training, checkpoint, and generation.
+ArafatAI grows first through tools, memory, evals, and disciplined engineering.
+Large model training needs much more data, GPU compute, and evaluation.

@@ -23,3 +23,8 @@ def test_risky_action_detected():
 def test_wait_action_cli_args():
     action = BrowserAction.from_json('{"type":"wait","value":1000}')
     assert action.to_node_cli_args() == ["--wait", "1000"]
+
+
+def test_snapshot_action_cli_args():
+    action = BrowserAction.from_json('{"type":"snapshot","value":"runs/snapshot.json"}')
+    assert action.to_node_cli_args() == ["--snapshot", "runs/snapshot.json"]

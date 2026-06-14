@@ -1,0 +1,17 @@
+{
+  "name": "arafatai-browser-agent-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ArafatAI CDP browser hand for real clicks, typing, upload, screenshot, snapshot, and assertions.",
+  "type": "module",
+  "main": "src/cli.js",
+  "scripts": {
+    "agent": "node src/cli.js",
+    "test:fixture": "node src/cli.js --fixture click-test --click \"text=Open Modal\" --expect \"#modal.show\" --screenshot runs/fixture-modal.png --yes",
+    "test:snapshot": "node src/cli.js --fixture click-test --snapshot runs/fixture-snapshot.json --yes --headless",
+    "local:modal": "node src/cli.js --url http://user-sites.local/en/add-listing/ --click \"text=Here\" --expect \"#theme-login-modal.show\" --screenshot runs/modal-open.png --yes"
+  },
+  "dependencies": {
+    "chrome-remote-interface": "^0.33.3"
+  }
+}

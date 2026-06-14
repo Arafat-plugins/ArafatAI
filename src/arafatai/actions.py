@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
-ActionType = Literal["click", "type", "upload", "wait", "expect", "screenshot", "stop"]
+ActionType = Literal["click", "type", "upload", "wait", "expect", "screenshot", "snapshot", "stop"]
 
 
 RISKY_WORDS = (
@@ -47,6 +47,7 @@ class BrowserAction:
         "wait",
         "expect",
         "screenshot",
+        "snapshot",
         "stop",
     }
 
@@ -87,7 +88,7 @@ class BrowserAction:
             if self.value in (None, ""):
                 raise ValueError(f"{self.type} action requires value.")
 
-        if self.type in {"wait", "screenshot"} and self.value in (None, ""):
+        if self.type in {"wait", "screenshot", "snapshot"} and self.value in (None, ""):
             raise ValueError(f"{self.type} action requires value.")
 
         if self.type == "wait":
@@ -127,6 +128,9 @@ class BrowserAction:
 
         if self.type == "screenshot":
             return ["--screenshot", str(self.value)]
+
+        if self.type == "snapshot":
+            return ["--snapshot", str(self.value)]
 
         if self.type == "stop":
             return []

@@ -21,8 +21,8 @@ This repo starts as a clean scaffold. Implementation will grow step by step.
 ```text
 Phase 1: core structure and docs
 Phase 2: browser tool adapter
-Phase 3: simple LLM brain with JSON actions
-Phase 4: memory and evals
+Phase 3: browser snapshot, memory, and eval basics
+Phase 4: Tiny GPT learning module
 Phase 5: multi-agent workflow
 Phase 6: PR-gated self-improvement
 ```
@@ -96,3 +96,62 @@ ARAFATAI_BROWSER_AGENT_NODE="C:/path/to/browser-agent-mvp"
 ```
 
 Risky actions are blocked unless `--yes` is passed.
+
+## Browser Snapshot Example
+
+Snapshot reads the page like an agent: URL, title, visible text, clickables,
+forms, dialogs, and notices.
+
+```bash
+python -m arafatai browser-snapshot \
+  --url "http://user-sites.local/en/add-listing/" \
+  --output "runs/add-listing-snapshot.json"
+```
+
+Then run a small eval against the snapshot:
+
+```bash
+python -m arafatai eval-browser-snapshot \
+  --snapshot "runs/add-listing-snapshot.json" \
+  --must-contain "Here" \
+  --min-clickables 1
+```
+
+## Lesson Memory Example
+
+```bash
+python -m arafatai remember \
+  --lesson "The add-listing modal needs the real theme modal markup in rendered HTML." \
+  --source "local add-listing debug" \
+  --tag browser \
+  --tag wordpress
+```
+
+## Tiny GPT Learning Module
+
+Tiny GPT is for learning how LLM training works by hand. It is not meant to be
+the production brain for ArafatAI.
+
+Install the optional PyTorch dependency when you are ready for this part:
+
+```bash
+python -m pip install -e .[llm]
+```
+
+Train on a small text file:
+
+```bash
+python -m arafatai.learning.tiny_gpt.train \
+  --input examples/tiny-gpt/sample.txt \
+  --out-dir runs/tiny-gpt \
+  --max-steps 200 \
+  --device cpu
+```
+
+Generate text:
+
+```bash
+python -m arafatai.learning.tiny_gpt.generate \
+  --checkpoint-dir runs/tiny-gpt \
+  --prompt "ArafatAI"
+```

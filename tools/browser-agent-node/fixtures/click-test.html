@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser Agent Click Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 48px;
+    }
+
+    button {
+      padding: 10px 14px;
+      border: 1px solid #1f6feb;
+      background: #1f6feb;
+      color: white;
+      cursor: pointer;
+    }
+
+    #modal {
+      display: none;
+      margin-top: 24px;
+      padding: 18px;
+      border: 1px solid #9aa4b2;
+      width: 320px;
+    }
+
+    #modal.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <button id="open-modal" type="button">Open Modal</button>
+
+  <div id="modal" role="dialog" aria-modal="true">
+    Modal opened by a real coordinate click.
+  </div>
+
+  <script>
+    document.getElementById('open-modal').addEventListener('click', () => {
+      document.getElementById('modal').classList.add('show');
+    });
+  </script>
+</body>
+</html>

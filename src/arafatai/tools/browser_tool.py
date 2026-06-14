@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from dataclasses import dataclass
@@ -11,8 +12,11 @@ from arafatai.actions import BrowserAction
 from arafatai.tools.tool_result import ToolResult
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_NODE_BROWSER_TOOL = REPO_ROOT / "tools" / "browser-agent-node"
+LEGACY_NODE_BROWSER_TOOL = Path("C:/Users/Arafat/Local Sites/user-sites/app/public/tools/browser-agent-mvp")
 DEFAULT_NODE_BROWSER_TOOL = (
-    Path("C:/Users/Arafat/Local Sites/user-sites/app/public/tools/browser-agent-mvp")
+    REPO_NODE_BROWSER_TOOL if (REPO_NODE_BROWSER_TOOL / "src" / "cli.js").exists() else LEGACY_NODE_BROWSER_TOOL
 )
 
 
@@ -110,6 +114,37 @@ class BrowserTool:
             },
         )
 
-    def snapshot(self, url: str) -> ToolResult:
-        action = BrowserAction(type="screenshot", value="runs/snapshot.png")
-        return self.run_actions(url, [action], allow_risky=True)
+    def snapshot(
+        self,
+        url: str,
+        *,
+        output: str = "runs/snapshot.json",
+        headless: bool = True,
+        user_data_dir: str | None = None,
+        keep_open: bool = False,
+    ) -> ToolResult:
+        action = BrowserAction(type="snapshot", value=output)
+        result = self.run_actions(
+            url,
+            [action],
+            allow_risky=True,
+            headless=headless,
+            user_data_dir=user_data_dir,
+            keep_open=keep_open,
+        )
+        if not result.ok:
+            return result
+
+        stdout = str(result.data.get("stdout", ""))
+        snapshot_path = None
+        for line in stdout.splitlines():
+            if line.startswith("snapshot: "):
+                snapshot_path = line.removeprefix("snapshot: ").strip()
+
+        if snapshot_path:
+            path = Path(snapshot_path)
+            if path.exists():
+                result.data["snapshot_path"] = str(path)
+                result.data["snapshot"] = json.loads(path.read_text(encoding="utf-8"))
+
+        return result
