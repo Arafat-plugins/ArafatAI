@@ -10,8 +10,19 @@ Current plan:
 3. Later add a Python Playwright/CDP version if needed.
 ```
 
-The first implementation will either copy or wrap:
+Current adapter wraps:
 
 ```text
 C:/Users/Arafat/Local Sites/user-sites/app/public/tools/browser-agent-mvp
+```
+
+Python entrypoint:
+
+```bash
+python -m arafatai browser-action \
+  --url "file:///C:/Users/Arafat/Local Sites/user-sites/app/public/tools/browser-agent-mvp/fixtures/click-test.html" \
+  --action "{\"type\":\"click\",\"target\":\"text=Open Modal\"}" \
+  --action "{\"type\":\"expect\",\"target\":\"#modal.show\"}" \
+  --action "{\"type\":\"screenshot\",\"value\":\"runs/fixture-modal.png\"}" \
+  --yes
 ```

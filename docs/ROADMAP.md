@@ -9,9 +9,11 @@
 
 ## Phase 2: Browser Tool Adapter
 
-- Connect the existing browser-agent MVP as a tool.
-- Add Python wrapper around browser actions.
+- Connect the existing browser-agent MVP as a tool. Done in first adapter slice.
+- Add Python wrapper around browser actions. Done in first adapter slice.
 - Add snapshot format: URL, title, visible text, clickables, screenshots.
+- Add richer DOM snapshot extraction.
+- Add Python Playwright/CDP option if Node adapter becomes limiting.
 
 ## Phase 3: Simple AI Brain
 

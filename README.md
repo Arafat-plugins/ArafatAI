@@ -53,3 +53,24 @@ python -m pip install -e .
 python -m arafatai --help
 python -m pytest
 ```
+
+## Browser Action Example
+
+This repo is Python-first, but the first browser hand wraps the existing Node
+browser-agent MVP.
+
+```bash
+python -m arafatai browser-action \
+  --url "http://user-sites.local/en/add-listing/" \
+  --action "{\"type\":\"click\",\"target\":\"text=Here\"}" \
+  --action "{\"type\":\"screenshot\",\"value\":\"runs/after-click.png\"}" \
+  --yes
+```
+
+Environment override:
+
+```bash
+ARAFATAI_BROWSER_AGENT_NODE="C:/path/to/browser-agent-mvp"
+```
+
+Risky actions are blocked unless `--yes` is passed.
