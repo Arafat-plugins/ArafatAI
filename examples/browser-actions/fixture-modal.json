@@ -1,0 +1,17 @@
+[
+  {
+    "type": "click",
+    "target": "text=Open Modal",
+    "reason": "Open the fixture modal with a real browser click."
+  },
+  {
+    "type": "expect",
+    "target": "#modal.show",
+    "reason": "Verify the modal became visible."
+  },
+  {
+    "type": "screenshot",
+    "value": "runs/python-wrapper-fixture.png",
+    "reason": "Save visual proof of the browser action."
+  }
+]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 from arafatai.actions import BrowserAction
 from arafatai.agents.planner import PlannerAgent
@@ -22,8 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
     browser.add_argument(
         "--action",
         action="append",
-        required=True,
         help='Action JSON. Example: {"type":"click","target":"text=Here"}',
+    )
+    browser.add_argument(
+        "--actions-file",
+        help="Path to a JSON file containing one action object or a list of action objects.",
     )
     browser.add_argument("--yes", action="store_true", help="Allow risky actions.")
     browser.add_argument("--headed", action="store_true", help="Run browser visibly instead of headless.")
@@ -56,9 +60,23 @@ def main() -> None:
 
     if args.command == "browser-action":
         try:
-            actions = [BrowserAction.from_json(raw) for raw in args.action]
+            action_payloads = list(args.action or [])
+            if args.actions_file:
+                raw = Path(args.actions_file).read_text(encoding="utf-8")
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    action_payloads.extend(json.dumps(item) for item in parsed)
+                elif isinstance(parsed, dict):
+                    action_payloads.append(json.dumps(parsed))
+                else:
+                    raise ValueError("--actions-file must contain a JSON object or array.")
+            if not action_payloads:
+                raise ValueError("Provide --action or --actions-file.")
+            actions = [BrowserAction.from_json(raw) for raw in action_payloads]
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"Invalid actions file JSON: {exc}") from exc
         except ValueError as exc:
-            raise SystemExit(f"Invalid action JSON: {exc}") from exc
+            raise SystemExit(f"Invalid browser action: {exc}") from exc
 
         result = BrowserTool().run_actions(
             args.url,

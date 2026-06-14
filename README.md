@@ -54,6 +54,12 @@ python -m arafatai --help
 python -m pytest
 ```
 
+Windows D-drive setup for this machine:
+
+```text
+docs/LOCAL_SETUP_WINDOWS.md
+```
+
 ## Browser Action Example
 
 This repo is Python-first, but the first browser hand wraps the existing Node
@@ -64,6 +70,22 @@ python -m arafatai browser-action \
   --url "http://user-sites.local/en/add-listing/" \
   --action "{\"type\":\"click\",\"target\":\"text=Here\"}" \
   --action "{\"type\":\"screenshot\",\"value\":\"runs/after-click.png\"}" \
+  --yes
+```
+
+On Windows PowerShell, prefer an action file to avoid JSON quote escaping:
+
+```json
+[
+  { "type": "click", "target": "text=Here" },
+  { "type": "screenshot", "value": "runs/after-click.png" }
+]
+```
+
+```bash
+python -m arafatai browser-action \
+  --url "http://user-sites.local/en/add-listing/" \
+  --actions-file examples/browser-actions/add-listing-modal.json \
   --yes
 ```
 

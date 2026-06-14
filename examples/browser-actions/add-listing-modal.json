@@ -1,0 +1,12 @@
+[
+  {
+    "type": "click",
+    "target": "text=Here",
+    "reason": "Click the login/sign up link in the Add Listing restriction message."
+  },
+  {
+    "type": "screenshot",
+    "value": "runs/add-listing-after-click.png",
+    "reason": "Save visual proof after the click."
+  }
+]

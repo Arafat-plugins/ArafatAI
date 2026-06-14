@@ -21,8 +21,6 @@ Python entrypoint:
 ```bash
 python -m arafatai browser-action \
   --url "file:///C:/Users/Arafat/Local Sites/user-sites/app/public/tools/browser-agent-mvp/fixtures/click-test.html" \
-  --action "{\"type\":\"click\",\"target\":\"text=Open Modal\"}" \
-  --action "{\"type\":\"expect\",\"target\":\"#modal.show\"}" \
-  --action "{\"type\":\"screenshot\",\"value\":\"runs/fixture-modal.png\"}" \
+  --actions-file examples/browser-actions/fixture-modal.json \
   --yes
 ```
