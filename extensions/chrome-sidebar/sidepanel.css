@@ -1,0 +1,102 @@
+body {
+  margin: 0;
+  color: #172033;
+  background: #f6f8fb;
+  font-family: Arial, sans-serif;
+}
+
+header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #dde3eb;
+  background: #ffffff;
+}
+
+header strong {
+  font-size: 16px;
+}
+
+header span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+textarea,
+input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 9px;
+  color: #111827;
+  background: #fff;
+  font: inherit;
+  font-weight: 400;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+details {
+  border: 1px solid #dde3eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+details label {
+  margin-top: 10px;
+}
+
+h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+pre {
+  min-height: 80px;
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid #dde3eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #0f172a;
+  color: #dbeafe;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+

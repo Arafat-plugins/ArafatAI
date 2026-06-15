@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ArafatAI</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <strong>ArafatAI</strong>
+    <span>Local Codex bridge</span>
+  </header>
+
+  <main>
+    <label>
+      Goal
+      <textarea id="goal" rows="4" placeholder="Ask about this page or request a safe browser plan."></textarea>
+    </label>
+
+    <div class="row">
+      <button id="inspect" type="button">Inspect Page</button>
+      <button id="ask" type="button">Ask Codex</button>
+    </div>
+
+    <details>
+      <summary>Bridge settings</summary>
+      <label>
+        URL
+        <input id="bridge-url" type="url" value="http://127.0.0.1:8792">
+      </label>
+      <label>
+        Token
+        <input id="bridge-token" type="password" value="arafatai-local-token">
+      </label>
+    </details>
+
+    <section>
+      <h2>Snapshot</h2>
+      <pre id="snapshot">No snapshot yet.</pre>
+    </section>
+
+    <section>
+      <h2>Response</h2>
+      <pre id="response">No response yet.</pre>
+    </section>
+  </main>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

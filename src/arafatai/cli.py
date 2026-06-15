@@ -8,6 +8,8 @@ from pathlib import Path
 
 from arafatai.actions import BrowserAction
 from arafatai.agents.planner import PlannerAgent
+from arafatai.bridge.codex_cli import DEFAULT_TOKEN
+from arafatai.bridge.server import BridgeServerConfig, run_server
 from arafatai.evals.scorecard import evaluate_browser_snapshot, load_snapshot
 from arafatai.memory.lesson_store import Lesson, LessonStore
 from arafatai.tools.browser_tool import BrowserTool
@@ -54,6 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
     eval_snapshot.add_argument("--snapshot", required=True, help="Path to snapshot JSON.")
     eval_snapshot.add_argument("--must-contain", action="append", default=[], help="Text that must be present.")
     eval_snapshot.add_argument("--min-clickables", type=int, default=0, help="Minimum clickable elements expected.")
+
+    bridge = subparsers.add_parser("bridge-server", help="Run local Codex CLI bridge for browser extension testing.")
+    bridge.add_argument("--host", default="127.0.0.1", help="Bind host.")
+    bridge.add_argument("--port", type=int, default=8792, help="Bind port.")
+    bridge.add_argument("--token", default=DEFAULT_TOKEN, help="Required x-arafatai-token value.")
+    bridge.add_argument("--codex-cli", help="Path to codex executable. Also supports ARAFATAI_CODEX_CLI_PATH.")
+    bridge.add_argument("--cwd", default=".", help="Working directory passed to Codex CLI.")
+    bridge.add_argument("--timeout", type=int, default=45, help="Codex CLI timeout in seconds.")
 
     parser.add_argument(
         "--goal",
@@ -146,6 +156,19 @@ def main() -> None:
         print(json.dumps(result.to_dict(), indent=2))
         if not result.passed:
             raise SystemExit(1)
+        return
+
+    if args.command == "bridge-server":
+        run_server(
+            BridgeServerConfig(
+                host=args.host,
+                port=args.port,
+                token=args.token,
+                codex_path=args.codex_cli,
+                cwd=Path(args.cwd).resolve(),
+                timeout_seconds=args.timeout,
+            )
+        )
         return
 
 

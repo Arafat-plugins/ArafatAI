@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "ArafatAI Sidebar",
+  "version": "0.1.0",
+  "description": "Local ArafatAI sidebar that sends page snapshots to the Codex CLI bridge.",
+  "permissions": ["activeTab", "scripting", "sidePanel", "tabs"],
+  "host_permissions": ["<all_urls>", "http://127.0.0.1:8792/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "ArafatAI"
+  }
+}

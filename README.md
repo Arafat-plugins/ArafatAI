@@ -97,6 +97,30 @@ ARAFATAI_BROWSER_AGENT_NODE="C:/path/to/browser-agent-mvp"
 
 Risky actions are blocked unless `--yes` is passed.
 
+## Local Codex Bridge For Sidebar Testing
+
+The Chrome sidebar extension talks to a local ArafatAI bridge. The bridge then
+calls Codex CLI in read-only, ephemeral mode.
+
+```bash
+python -m arafatai bridge-server --port 8792 --token arafatai-local-token
+```
+
+If Codex CLI is not found automatically:
+
+```bash
+set ARAFATAI_CODEX_CLI_PATH=C:\path\to\codex.exe
+python -m arafatai bridge-server --port 8792 --token arafatai-local-token
+```
+
+Extension folder:
+
+```text
+extensions/chrome-sidebar
+```
+
+Load it from `chrome://extensions` with Developer mode -> Load unpacked.
+
 ## Browser Snapshot Example
 
 Snapshot reads the page like an agent: URL, title, visible text, clickables,
