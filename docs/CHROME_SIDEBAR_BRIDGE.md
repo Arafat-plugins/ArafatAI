@@ -13,6 +13,7 @@ ArafatAI local bridge
   validates token
   builds bounded agent-contract prompt
   calls Codex CLI in read-only ephemeral mode for testing
+  stores task checkpoints
   returns text to sidebar
 ```
 
@@ -56,6 +57,26 @@ C:\Users\Arafat\Documents\ArafatAI\extensions\chrome-sidebar
 
 The loop stops when the AI returns `done: true`, asks a question, returns no
 actions, or reaches the step limit.
+
+## Task Runtime
+
+The bridge exposes a minimal long-running task API:
+
+```text
+POST /tasks              create task checkpoint
+GET  /tasks/{id}         inspect task state
+POST /tasks/{id}/plan    ask AI for the next action using saved observations
+POST /tasks/{id}/event   append observation/action result
+```
+
+Task files are stored in:
+
+```text
+runs/bridge-tasks/
+```
+
+This keeps the sidebar simple while the backend owns task identity and
+checkpoint history.
 
 ## Agent JSON Contract
 

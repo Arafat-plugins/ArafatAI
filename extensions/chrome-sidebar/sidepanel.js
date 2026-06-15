@@ -10,6 +10,7 @@ const BRIDGE_TOKEN = 'arafatai-local-token';
 const MAX_AGENT_STEPS = 5;
 
 let history = [];
+let activeTaskId = null;
 
 function setStatus(text) {
   els.status.textContent = text;
@@ -149,30 +150,40 @@ function readableReply(agentReply, observations = []) {
   return lines.join('\n').trim();
 }
 
-async function askBridge(goal, page, taskState) {
-  const response = await fetch(`${BRIDGE_URL}/reason`, {
+async function bridgePost(path, body) {
+  const response = await fetch(`${BRIDGE_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-arafatai-token': BRIDGE_TOKEN,
     },
-    body: JSON.stringify({
-      mode: 'agent_task',
-      goal,
-      page,
-      history,
-      task_state: taskState,
-      provider: 'codex',
-      approval_policy: 'auto-safe-actions',
-    }),
+    body: JSON.stringify(body),
   });
 
   const data = await response.json();
   if (!response.ok || !data.ok) {
     throw new Error(data.error || data.text || 'Bridge request failed.');
   }
+  return data;
+}
+
+async function startTask(goal) {
+  const data = await bridgePost('/tasks', { goal, history });
+  return data.task;
+}
+
+async function planTask(taskId, page, taskState) {
+  const data = await bridgePost(`/tasks/${taskId}/plan`, {
+    page,
+    task_state: taskState,
+    approval_policy: 'auto-safe-actions',
+  });
 
   return parseAgentReply(data.text || '');
+}
+
+async function recordTaskEvent(taskId, event) {
+  await bridgePost(`/tasks/${taskId}/event`, { event });
 }
 
 function safeUrl(rawUrl) {
@@ -272,13 +283,23 @@ async function runAgentAction(action) {
 }
 
 async function runAgentTask(goal) {
+  const task = await startTask(goal);
+  activeTaskId = task.id;
   const observations = [];
   let finalReply = '';
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step += 1) {
     setStatus(`Working ${step}/${MAX_AGENT_STEPS}...`);
     const page = await optionalPageSnapshot();
-    const agentReply = await askBridge(goal, page, {
+    await recordTaskEvent(activeTaskId, {
+      kind: 'observation',
+      status: 'running',
+      step,
+      snapshot: page,
+      message: `Observed ${page.title || page.url || 'current tab'}.`,
+    });
+
+    const agentReply = await planTask(activeTaskId, page, {
       step,
       max_steps: MAX_AGENT_STEPS,
       observations: observations.slice(-8),
@@ -287,6 +308,18 @@ async function runAgentTask(goal) {
     finalReply = readableReply(agentReply);
 
     if (agentReply.questions.length || agentReply.done || !agentReply.actions.length) {
+      await recordTaskEvent(activeTaskId, {
+        kind: 'observation',
+        status: agentReply.questions.length ? 'waiting_for_user' : agentReply.done ? 'done' : 'stopped',
+        step,
+        message: agentReply.questions.length
+          ? 'Task is waiting for user input.'
+          : agentReply.done
+            ? 'Task completed.'
+            : 'Task stopped because no next action was returned.',
+        reply: agentReply.reply,
+        questions: agentReply.questions,
+      });
       return readableReply(agentReply, observations.slice(-3));
     }
 
@@ -294,9 +327,24 @@ async function runAgentTask(goal) {
     for (const action of actions) {
       const result = await runAgentAction(action);
       observations.push(result);
+      await recordTaskEvent(activeTaskId, {
+        kind: 'observation',
+        status: result.ok ? 'running' : 'blocked',
+        step,
+        action,
+        result,
+        message: result.message,
+      });
       if (!result.ok) break;
     }
   }
+
+  await recordTaskEvent(activeTaskId, {
+    kind: 'observation',
+    status: 'step_limit',
+    step: MAX_AGENT_STEPS,
+    message: `Stopped after ${MAX_AGENT_STEPS} steps.`,
+  });
 
   return [
     finalReply || 'I started the task but did not finish within the step limit.',

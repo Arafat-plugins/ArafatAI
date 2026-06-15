@@ -152,6 +152,21 @@ The sidebar now runs a small dynamic action-observation loop. The AI can choose
 safe browser actions, the extension runs them, then the updated page observation
 goes back to the AI for the next step.
 
+Tasks are checkpointed by the local bridge under:
+
+```text
+runs/bridge-tasks/
+```
+
+Bridge task API:
+
+```text
+POST /tasks              -> create a long-running browser task
+GET  /tasks/{id}         -> read checkpoint and events
+POST /tasks/{id}/plan    -> ask AI for the next step using saved observations
+POST /tasks/{id}/event   -> save page observations/action results
+```
+
 ```text
 navigate -> open a URL in the current tab
 search   -> open Google web/image search
