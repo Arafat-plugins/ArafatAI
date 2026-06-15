@@ -7,6 +7,7 @@ const els = {
 
 const BRIDGE_URL = 'http://127.0.0.1:8792';
 const BRIDGE_TOKEN = 'arafatai-local-token';
+const MAX_AGENT_STEPS = 5;
 
 let history = [];
 
@@ -33,7 +34,7 @@ function addMessage(role, text) {
   article.scrollIntoView({ block: 'end' });
 
   history.push({ role, text: text || '' });
-  history = history.slice(-8);
+  history = history.slice(-10);
 }
 
 async function activeTab() {
@@ -64,26 +65,33 @@ function fallbackTabSnapshot(tab) {
   };
 }
 
+async function sendTabMessageWithInjection(tab, message) {
+  if (!tab?.id || !isScriptableTab(tab)) {
+    throw new Error('Current tab cannot be controlled with page DOM actions.');
+  }
+
+  try {
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch (error) {
+    if (!isMissingContentScriptError(error)) throw error;
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['content.js'],
+    });
+    return chrome.tabs.sendMessage(tab.id, message);
+  }
+}
+
 async function optionalPageSnapshot() {
   const tab = await activeTab();
   if (!tab?.id || !isScriptableTab(tab)) return fallbackTabSnapshot(tab);
 
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'ARAFATAI_SNAPSHOT' });
+    const response = await sendTabMessageWithInjection(tab, { type: 'ARAFATAI_SNAPSHOT' });
     return response?.ok ? response.snapshot : fallbackTabSnapshot(tab);
-  } catch (error) {
-    if (!isMissingContentScriptError(error)) return fallbackTabSnapshot(tab);
-
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['content.js'],
-      });
-      const response = await chrome.tabs.sendMessage(tab.id, { type: 'ARAFATAI_SNAPSHOT' });
-      return response?.ok ? response.snapshot : fallbackTabSnapshot(tab);
-    } catch {
-      return fallbackTabSnapshot(tab);
-    }
+  } catch {
+    return fallbackTabSnapshot(tab);
   }
 }
 
@@ -107,6 +115,7 @@ function parseAgentReply(text) {
       reply: String(text || ''),
       questions: [],
       actions: [],
+      done: false,
     };
   }
 
@@ -116,29 +125,31 @@ function parseAgentReply(text) {
       reply: String(data.reply || data.answer || ''),
       questions: Array.isArray(data.questions) ? data.questions : [],
       actions: Array.isArray(data.actions) ? data.actions : [],
+      done: Boolean(data.done),
     };
   } catch {
     return {
       reply: String(text || ''),
       questions: [],
       actions: [],
+      done: false,
     };
   }
 }
 
-function readableReply(agentReply, actionResults = []) {
+function readableReply(agentReply, observations = []) {
   const lines = [];
   if (agentReply.reply) lines.push(agentReply.reply);
   if (Array.isArray(agentReply.questions) && agentReply.questions.length) {
     lines.push('', 'Question:', ...agentReply.questions.map((item) => `- ${item}`));
   }
-  if (actionResults.length) {
-    lines.push('', ...actionResults.map((item) => item.message));
+  if (observations.length) {
+    lines.push('', ...observations.map((item) => item.message));
   }
   return lines.join('\n').trim();
 }
 
-async function askBridge(goal, page) {
+async function askBridge(goal, page, taskState) {
   const response = await fetch(`${BRIDGE_URL}/reason`, {
     method: 'POST',
     headers: {
@@ -146,12 +157,13 @@ async function askBridge(goal, page) {
       'x-arafatai-token': BRIDGE_TOKEN,
     },
     body: JSON.stringify({
-      mode: 'agent_chat',
+      mode: 'agent_task',
       goal,
       page,
       history,
+      task_state: taskState,
       provider: 'codex',
-      approval_policy: 'chat-safe-actions',
+      approval_policy: 'auto-safe-actions',
     }),
   });
 
@@ -163,38 +175,11 @@ async function askBridge(goal, page) {
   return parseAgentReply(data.text || '');
 }
 
-function cleanSearchQuery(goal) {
-  const lower = normalizeText(goal).toLowerCase();
-  const withoutCommands = lower
-    .replace(/\b(ekhane|ekhankar|current|page|url|ache|ase|e|a|dia|diye|google|search|koro|kor|korte|dao|daw|please|image|images|img|photo|chobi|chhobi|jekono|j kono|any)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return withoutCommands || (/\b(image|images|photo|chobi|chhobi)\b/i.test(goal) ? 'images' : 'search');
-}
-
-function inferSafeActions(goal, page) {
-  const text = normalizeText(goal);
-  const lower = text.toLowerCase();
-  const wantsSearch = /\b(search|google|khujo|khuj|find)\b/i.test(lower);
-  const wantsImages = /\b(image|images|photo|chobi|chhobi)\b/i.test(lower);
-
-  if (wantsSearch || wantsImages) {
-    return [{
-      type: 'search',
-      value: cleanSearchQuery(text),
-      mode: wantsImages ? 'images' : 'web',
-      reason: page?.url?.startsWith('chrome://')
-        ? 'Chrome internal new-tab page cannot be DOM-controlled, so navigation is used.'
-        : 'User asked to search from the current tab.',
-    }];
-  }
-
-  return [];
-}
-
 function safeUrl(rawUrl) {
   try {
-    const url = new URL(String(rawUrl || ''));
+    const text = String(rawUrl || '').trim();
+    const withProtocol = /^[a-z]+:\/\//i.test(text) ? text : `https://${text}`;
+    const url = new URL(withProtocol);
     if (!['http:', 'https:'].includes(url.protocol)) return '';
     return url.toString();
   } catch {
@@ -202,40 +187,123 @@ function safeUrl(rawUrl) {
   }
 }
 
-async function runSafeAction(action) {
-  const tab = await activeTab();
-  if (!tab?.id) return { ok: false, message: 'No active tab found.' };
+function isRiskyAction(action) {
+  const text = [
+    action.type,
+    action.target,
+    action.value,
+    action.url,
+    action.reason,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return /\b(delete|remove|publish|payment|pay|checkout|purchase|merge|deploy|reset|irreversible|destroy)\b/.test(text);
+}
 
-  if (action.type === 'search') {
-    const query = normalizeText(action.value || action.target || 'images');
-    const params = new URLSearchParams({ q: query || 'images' });
-    if (action.mode === 'images') params.set('tbm', 'isch');
-    const url = `https://www.google.com/search?${params.toString()}`;
-    await chrome.tabs.update(tab.id, { url });
-    return { ok: true, message: `Opened Google ${action.mode === 'images' ? 'image ' : ''}search for: ${query}` };
-  }
+async function runTabAction(action, tab) {
+  if (!tab?.id) return { ok: false, message: 'No active tab found.', action };
 
   if (action.type === 'navigate') {
     const url = safeUrl(action.url || action.value || action.target);
-    if (!url) return { ok: false, message: 'Blocked unsafe or invalid navigation URL.' };
+    if (!url) return { ok: false, message: 'Blocked unsafe or invalid navigation URL.', action };
     await chrome.tabs.update(tab.id, { url });
-    return { ok: true, message: `Opened: ${url}` };
+    return { ok: true, message: `Opened: ${url}`, action };
   }
 
-  return { ok: false, message: `Action type "${action.type}" is not available in the simple chat UI yet.` };
+  if (action.type === 'search') {
+    const query = normalizeText(action.value || action.target || action.query || '');
+    if (!query) return { ok: false, message: 'Search action missing query.', action };
+    const params = new URLSearchParams({ q: query });
+    if (action.mode === 'images') params.set('tbm', 'isch');
+    const url = `https://www.google.com/search?${params.toString()}`;
+    await chrome.tabs.update(tab.id, { url });
+    return {
+      ok: true,
+      message: `Opened Google ${action.mode === 'images' ? 'image ' : ''}search for: ${query}`,
+      action,
+    };
+  }
+
+  return null;
 }
 
-async function runSafeActions(actions) {
-  const allowed = (Array.isArray(actions) ? actions : [])
-    .filter((action) => action && ['search', 'navigate'].includes(action.type))
-    .slice(0, 1);
-  const results = [];
+async function runPageAction(action, tab) {
+  if (!['click', 'type'].includes(action.type)) return null;
 
-  for (const action of allowed) {
-    results.push(await runSafeAction(action));
+  try {
+    const response = await sendTabMessageWithInjection(tab, {
+      type: 'ARAFATAI_RUN_ACTION',
+      action,
+    });
+    if (!response?.ok) {
+      return { ok: false, message: response?.error || 'Page action failed.', action };
+    }
+    return { ok: true, message: `${action.type} completed.`, action, result: response.result };
+  } catch (error) {
+    return { ok: false, message: error.message || String(error), action };
+  }
+}
+
+async function runAgentAction(action) {
+  if (isRiskyAction(action)) {
+    return {
+      ok: false,
+      message: `Stopped before risky action. Please confirm manually if you want: ${action.reason || action.type}`,
+      action,
+    };
   }
 
-  return results;
+  const tab = await activeTab();
+  const tabResult = await runTabAction(action, tab);
+  if (tabResult) return tabResult;
+
+  const pageResult = await runPageAction(action, tab);
+  if (pageResult) return pageResult;
+
+  if (action.type === 'wait') {
+    const ms = Math.min(Math.max(Number(action.value || action.ms || 1000), 0), 10000);
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    return { ok: true, message: `Waited ${ms}ms.`, action };
+  }
+
+  if (action.type === 'observe') {
+    return { ok: true, message: 'Observed current page.', action, snapshot: await optionalPageSnapshot() };
+  }
+
+  return { ok: false, message: `Unsupported action type: ${action.type}`, action };
+}
+
+async function runAgentTask(goal) {
+  const observations = [];
+  let finalReply = '';
+
+  for (let step = 1; step <= MAX_AGENT_STEPS; step += 1) {
+    setStatus(`Working ${step}/${MAX_AGENT_STEPS}...`);
+    const page = await optionalPageSnapshot();
+    const agentReply = await askBridge(goal, page, {
+      step,
+      max_steps: MAX_AGENT_STEPS,
+      observations: observations.slice(-8),
+    });
+
+    finalReply = readableReply(agentReply);
+
+    if (agentReply.questions.length || agentReply.done || !agentReply.actions.length) {
+      return readableReply(agentReply, observations.slice(-3));
+    }
+
+    const actions = agentReply.actions.slice(0, 3);
+    for (const action of actions) {
+      const result = await runAgentAction(action);
+      observations.push(result);
+      if (!result.ok) break;
+    }
+  }
+
+  return [
+    finalReply || 'I started the task but did not finish within the step limit.',
+    '',
+    `Stopped after ${MAX_AGENT_STEPS} steps. Tell me to continue if needed.`,
+    ...observations.slice(-3).map((item) => item.message),
+  ].filter(Boolean).join('\n');
 }
 
 async function sendMessage() {
@@ -245,14 +313,11 @@ async function sendMessage() {
   addMessage('user', goal);
   els.message.value = '';
   els.send.disabled = true;
-  setStatus('Thinking...');
+  setStatus('Working...');
 
   try {
-    const page = await optionalPageSnapshot();
-    const agentReply = await askBridge(goal, page);
-    const actions = agentReply.actions.length ? agentReply.actions : inferSafeActions(goal, page);
-    const actionResults = await runSafeActions(actions);
-    addMessage('assistant', readableReply(agentReply, actionResults) || '(empty response)');
+    const reply = await runAgentTask(goal);
+    addMessage('assistant', reply || '(empty response)');
     setStatus('Ready');
   } catch (error) {
     addMessage('assistant', error.message || String(error));

@@ -46,10 +46,16 @@ C:\Users\Arafat\Documents\ArafatAI\extensions\chrome-sidebar
 - Optional page snapshot attachment. If page inspection fails, normal chat still works.
 - Visible user-facing answer. Structured `questions` can be shown inside the chat reply.
 - No visible action panels in the current UI.
-- Safe tab-level actions from chat: `search` and `navigate`.
+- Dynamic action-observation loop from chat. Supported actions:
+  - `navigate`
+  - `search`
+  - `click`
+  - `type`
+  - `wait`
+  - `observe`
 
-Auto browser actions should be added only after approval gates and evals are
-ready.
+The loop stops when the AI returns `done: true`, asks a question, returns no
+actions, or reaches the step limit.
 
 ## Agent JSON Contract
 
@@ -60,12 +66,13 @@ ready.
   "questions": ["ask when the next action is unclear"],
   "actions": [
     {
-      "type": "click",
-      "target": "text=IMPORT FROM",
+      "type": "navigate",
+      "target": "https://n8n.io",
       "value": "",
-      "reason": "visible page text matches the user's import request"
+      "reason": "start the setup flow"
     }
   ],
+  "done": false,
   "needs_approval": true
 }
 ```
@@ -93,8 +100,13 @@ Message: what is this page?
 Press: Enter
 ```
 
-The current sidebar is chat-only. It does not click or type into the page.
+The current sidebar is visually chat-only, but it can execute the supported safe
+actions in the background.
 
 Chrome internal pages such as `chrome://newtab` do not allow extension DOM
 inspection. The sidebar sends a minimal tab snapshot and can still perform safe
 tab navigation, for example opening Google image search from a chat request.
+
+If the task reaches credentials, payment, CAPTCHA, destructive changes,
+publishing, or irreversible admin settings, the provider must ask the user
+before continuing.

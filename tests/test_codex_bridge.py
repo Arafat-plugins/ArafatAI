@@ -29,7 +29,7 @@ def test_browser_plan_prompt_requests_strict_json():
     assert '"actions"' in prompt
     assert '"reasoning_summary"' in prompt
     assert '"questions"' in prompt
-    assert "search|navigate|click|type" in prompt
+    assert "navigate|search|click|type|wait|observe" in prompt
 
 
 def test_agent_chat_prompt_keeps_own_ai_contract_provider_independent():
@@ -61,6 +61,22 @@ def test_agent_chat_safe_actions_can_search_from_chrome_newtab():
     assert "return one search or navigate action" in prompt
     assert "chrome://newtab" in prompt
     assert "use search or navigate" in prompt
+
+
+def test_agent_task_prompt_supports_action_observation_loop():
+    prompt = build_extension_prompt(
+        {
+            "mode": "agent_task",
+            "goal": "set up n8n",
+            "approval_policy": "auto-safe-actions",
+            "task_state": {"step": 2, "observations": [{"ok": True, "message": "Opened n8n."}]},
+        }
+    )
+
+    assert "act like a browser agent" in prompt
+    assert "task_state observations" in prompt
+    assert "credentials, payment, CAPTCHA" in prompt
+    assert '"done":true|false' in prompt
 
 
 def test_bridge_server_handler_can_be_constructed(tmp_path):

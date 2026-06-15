@@ -24,7 +24,7 @@ DEFAULT_TOKEN = "arafatai-local-token"
 class CodexCLIConfig:
     codex_path: str | None = None
     cwd: Path = Path.cwd()
-    timeout_seconds: int = 45
+    timeout_seconds: int = 120
     sandbox: str = "read-only"
 
 
@@ -76,6 +76,7 @@ def build_extension_prompt(body: dict[str, object]) -> str:
     goal = str(body.get("goal") or body.get("message") or "")
     page = body.get("page") if isinstance(body.get("page"), dict) else {}
     history = body.get("history") if isinstance(body.get("history"), list) else []
+    task_state = body.get("task_state") if isinstance(body.get("task_state"), dict) else {}
     approval_policy = str(body.get("approval_policy") or "ask")
 
     instructions = [
@@ -89,14 +90,19 @@ def build_extension_prompt(body: dict[str, object]) -> str:
         "Keep the reply concise and in the same language style as the user.",
     ]
 
-    if mode in {"browser_plan", "agent_chat", "agent_plan"}:
+    if mode in {"browser_plan", "agent_chat", "agent_plan", "agent_task"}:
         instructions.extend(
             [
                 "Return strict JSON only.",
-                "Schema: {\"reply\":\"short user-facing answer\",\"reasoning_summary\":[\"1-4 short evidence-based bullets\"],\"questions\":[\"short question if needed\"],\"actions\":[{\"type\":\"search|navigate|click|type\",\"target\":\"selector, URL, or search query\",\"value\":\"optional query/text/URL\",\"mode\":\"web|images\",\"reason\":\"why this action is safe and relevant\"}],\"needs_approval\":true}",
+                "Schema: {\"reply\":\"short user-facing answer\",\"reasoning_summary\":[\"1-4 short evidence-based bullets\"],\"questions\":[\"short question if needed\"],\"actions\":[{\"type\":\"navigate|search|click|type|wait|observe\",\"target\":\"selector, URL, or search query\",\"value\":\"optional query/text/URL/wait ms\",\"mode\":\"web|images\",\"reason\":\"why this action is safe and relevant\"}],\"done\":true|false,\"needs_approval\":true}",
                 "Use selectors or visible text from the supplied page snapshot. Do not invent completed actions.",
+                "For agent_task, act like a browser agent: choose the next 1-3 safe actions, then wait for observations in task_state.",
+                "Use previous task_state observations to decide whether the task is done or what to do next.",
+                "Set done true only when observations or page snapshot show the requested task is complete.",
+                "If credentials, payment, CAPTCHA, destructive changes, publishing, or irreversible admin changes are needed, ask a question and return no actions.",
                 "For agent_chat, actions may be empty if explanation or questions are enough.",
                 "If approval_policy is chat-safe-actions and the user clearly asks to search or open a URL, return one search or navigate action.",
+                "If approval_policy is auto-safe-actions, you may return safe navigate, search, click, type, wait, or observe actions.",
                 "For Chrome internal pages such as chrome://newtab, do not ask for a DOM snapshot; use search or navigate when the user asks for it.",
                 "For agent_plan, prefer one next action only.",
                 "If approval_policy is chat-only, keep actions empty and answer conversationally.",
@@ -109,6 +115,7 @@ def build_extension_prompt(body: dict[str, object]) -> str:
         "goal": goal,
         "page": page,
         "history": history[-6:],
+        "task_state": task_state,
         "approval_policy": approval_policy,
     }
 

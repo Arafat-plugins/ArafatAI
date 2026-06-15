@@ -137,8 +137,10 @@ The sidebar uses a provider-independent agent contract:
   "reasoning_summary": ["visible evidence-based summary, not hidden chain-of-thought"],
   "questions": ["ask when the target or intent is unclear"],
   "actions": [
-    { "type": "click", "target": "text=IMPORT FROM", "reason": "why this matches the request" }
+    { "type": "navigate", "target": "https://n8n.io", "reason": "start setup flow" },
+    { "type": "click", "target": "text=Sign in", "reason": "continue setup flow" }
   ],
+  "done": false,
   "needs_approval": true
 }
 ```
@@ -146,19 +148,23 @@ The sidebar uses a provider-independent agent contract:
 Codex is only the temporary testing provider. Later, ArafatAI's own model can
 return the same JSON shape and the sidebar will keep working.
 
-The current sidebar is chat-only. Browser actions can still be added behind a
-clean approval flow later, but they are not shown in the simple chat UI.
-
-The simple chat can still perform safe tab-level actions:
+The sidebar now runs a small dynamic action-observation loop. The AI can choose
+safe browser actions, the extension runs them, then the updated page observation
+goes back to the AI for the next step.
 
 ```text
-image search koro       -> opens Google Images in the current tab
-search wordpress plugin -> opens Google search in the current tab
+navigate -> open a URL in the current tab
+search   -> open Google web/image search
+click    -> click a visible selector or text target
+type     -> type into a visible field
+wait     -> wait for page changes
+observe  -> re-read the page
 ```
 
 Chrome internal pages such as `chrome://newtab` cannot be inspected like a
 normal website DOM. For those pages, ArafatAI uses tab navigation instead of DOM
-clicking.
+clicking. If the task needs credentials, payment, CAPTCHA, destructive changes,
+publishing, or irreversible admin settings, the AI should ask before continuing.
 
 ## Browser Snapshot Example
 
