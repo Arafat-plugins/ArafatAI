@@ -19,6 +19,7 @@ def test_task_store_creates_and_appends_events(tmp_path):
 
     assert updated is not None
     assert updated["status"] == "done"
+    assert updated["events"][0]["event_id"] == 1
     assert updated["events"][0]["kind"] == "observation"
     assert store.get(task["id"])["events"][0]["message"] == "Opened YouTube."
 

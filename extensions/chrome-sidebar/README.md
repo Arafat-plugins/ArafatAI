@@ -10,7 +10,7 @@ step, executes safe browser actions, and observes again.
 Chrome sidebar
   -> content script accessibility snapshot
   -> local task checkpoint
-  -> async Codex CLI provider for next action
+  -> async Codex CLI provider or fast Python local planner for next action
   -> execute safe browser action
   -> observe again
 ```
@@ -44,6 +44,10 @@ python -m arafatai bridge-server --port 8792 --token arafatai-local-token
 - Uses stable `ref_*` element targets when possible.
 - Runs a bounded action-observation loop.
 - Starts AI planning asynchronously and polls task checkpoints.
+- Shows real progress trace messages in the chat for snapshot, planner, action,
+  and result events.
+- Uses a deterministic local planner for obvious safe actions such as opening
+  YouTube or Google image search when the temporary Codex provider is slow.
 - Supported actions: `navigate`, `search`, `click`, `type`, `press`, `wait`, `observe`.
 - Saves task checkpoints in `runs/bridge-tasks/`.
 

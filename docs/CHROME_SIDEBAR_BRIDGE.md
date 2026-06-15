@@ -13,6 +13,7 @@ ArafatAI local bridge
   validates token
   builds bounded agent-contract prompt
   calls Codex CLI in read-only ephemeral mode for testing
+  uses the Python local planner for obvious safe browser actions
   stores task checkpoints
   returns text to sidebar
 ```
@@ -46,7 +47,9 @@ C:\Users\Arafat\Documents\ArafatAI\extensions\chrome-sidebar
 - Simple chat-style sidebar response through local bridge.
 - Optional page snapshot attachment. If page inspection fails, normal chat still works.
 - Visible user-facing answer. Structured `questions` can be shown inside the chat reply.
-- No visible action panels in the current UI.
+- Visible progress trace inside the chat. Each trace line comes from a real
+  snapshot, planner, action, or task checkpoint event.
+- No separate action panels in the current UI.
 - Dynamic action-observation loop from chat. Supported actions:
   - `navigate`
   - `search`
@@ -80,6 +83,25 @@ runs/bridge-tasks/
 This keeps the sidebar simple while the backend owns task identity and
 checkpoint history. The sidebar uses `plan-async` and polls `GET /tasks/{id}`,
 so a slow provider does not block the UI request.
+
+## Real Progress Reasoning
+
+The sidebar should never print fake "thinking" text. It prints public trace
+messages only when real work happens:
+
+```text
+Task checkpoint created: task id exists in runs/bridge-tasks
+Reading current tab snapshot: content script or tab fallback was called
+Observed page: snapshot returned URL/title
+Planner requested: /plan-async was posted
+Reasoning summary: provider/local planner returned evidence-based summary
+Running action: extension is about to navigate/search/click/type/press/wait
+Action completed: browser API or content script returned success
+Action blocked/failed: local safety/runtime stopped the action
+```
+
+This is the Claude/Codex-style behavior to copy: explain observable progress
+from the tool loop, but do not expose private chain-of-thought.
 
 ## Page Understanding
 

@@ -100,7 +100,9 @@ Risky actions are blocked unless `--yes` is passed.
 ## Local Codex Bridge For Sidebar Testing
 
 The Chrome sidebar extension talks to a local ArafatAI bridge. The bridge then
-calls Codex CLI in read-only, ephemeral mode.
+calls Codex CLI in read-only, ephemeral mode for complex planning. For obvious
+safe browser intents, a small Python local planner can answer immediately so
+basic navigation/search tasks do not time out when Codex is slow.
 
 ```bash
 python -m arafatai bridge-server --port 8792 --token arafatai-local-token
@@ -151,6 +153,20 @@ return the same JSON shape and the sidebar will keep working.
 The sidebar now runs a small dynamic action-observation loop. The AI can choose
 safe browser actions, the extension runs them, then the updated page observation
 goes back to the AI for the next step.
+
+The sidebar also shows real progress trace messages inside the chat:
+
+```text
+Task checkpoint created
+Reading current tab snapshot
+Planner requested
+Reasoning summary
+Running action
+Action completed or blocked
+```
+
+These lines are emitted by the actual task/action code path. They are public
+progress summaries, not hidden chain-of-thought.
 
 The page snapshot includes an accessibility-style tree with stable `ref_*`
 targets. The AI should prefer those refs for browser actions because they are

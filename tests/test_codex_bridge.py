@@ -1,6 +1,8 @@
 from pathlib import Path
+import json
 
 from arafatai.bridge.codex_cli import CodexCLIConfig, build_extension_prompt, compact_page
+from arafatai.bridge.codex_cli import CodexCLIBridge
 from arafatai.bridge.server import BridgeServerConfig, make_handler
 
 
@@ -31,6 +33,7 @@ def test_browser_plan_prompt_requests_strict_json():
     assert '"questions"' in prompt
     assert "navigate|search|click|type|press|wait|observe" in prompt
     assert "Use ref ids from page.accessibility_tree" in prompt
+    assert 'never use generic selectors like "a", "button", "input"' in prompt
 
 
 def test_agent_chat_prompt_keeps_own_ai_contract_provider_independent():
@@ -111,3 +114,43 @@ def test_compact_page_limits_large_snapshots():
     assert len(page["accessibility_tree"]) < 6100
     assert len(page["visible_text"]) < 1300
     assert len(page["clickables"]) == 80
+
+
+def test_codex_bridge_local_planner_finishes_after_safe_navigation():
+    bridge = CodexCLIBridge(CodexCLIConfig(codex_path=str(Path("missing-codex.exe"))))
+
+    first = bridge.reason(
+        {
+            "mode": "agent_task",
+            "goal": "youtube a jao",
+            "page": {"url": "chrome://newtab/", "title": "New Tab"},
+        }
+    )
+    first_payload = json.loads(first.text)
+
+    assert first.ok is True
+    assert first.source == "local-planner"
+    assert first_payload["actions"][0]["type"] == "navigate"
+
+    second = bridge.reason(
+        {
+            "mode": "agent_task",
+            "goal": "youtube a jao",
+            "page": {"url": "https://www.youtube.com/", "title": "YouTube"},
+            "task_state": {
+                "observations": [
+                    {
+                        "kind": "observation",
+                        "status": "running",
+                        "message": "Opened: https://www.youtube.com/",
+                    }
+                ]
+            },
+        }
+    )
+    second_payload = json.loads(second.text)
+
+    assert second.ok is True
+    assert second.source == "local-planner"
+    assert second_payload["done"] is True
+    assert second_payload["actions"] == []

@@ -16,6 +16,8 @@ import shutil
 import subprocess
 import tempfile
 
+from arafatai.bridge.local_planner import build_local_agent_reply
+
 
 DEFAULT_TOKEN = "arafatai-local-token"
 
@@ -186,6 +188,8 @@ def build_extension_prompt(body: dict[str, object]) -> str:
                 "Schema: {\"reply\":\"short user-facing answer\",\"reasoning_summary\":[\"1-4 short evidence-based bullets\"],\"questions\":[\"short question if needed\"],\"actions\":[{\"type\":\"navigate|search|click|type|press|wait|observe\",\"target\":\"ref id, selector, URL, or search query\",\"value\":\"optional query/text/URL/key/wait ms\",\"mode\":\"web|images\",\"reason\":\"why this action is safe and relevant\"}],\"done\":true|false,\"needs_approval\":true}",
                 "Use ref ids from page.accessibility_tree when available, for example target: \"ref_12\".",
                 "Use selectors or visible text from the supplied page snapshot only when no ref id exists. Do not invent completed actions.",
+                "For click actions, never use generic selectors like \"a\", \"button\", \"input\", or \"[role=button]\". Use a ref id or target like \"text=Exact visible label\".",
+                "If the only identifier is visible link/button text, set target to \"text=...\" and put the human explanation in reason.",
                 "For agent_task, act like a browser agent: choose the next 1-3 safe actions, then wait for observations in task_state.",
                 "Use previous task_state observations to decide whether the task is done or what to do next.",
                 "Set done true only when observations or page snapshot show the requested task is complete.",
@@ -224,8 +228,15 @@ class CodexCLIBridge:
         self.config = config or CodexCLIConfig()
 
     def reason(self, body: dict[str, object]) -> CodexCLIResponse:
+        local_reply = build_local_agent_reply(body, allow_question_fallback=False)
+        if local_reply:
+            return CodexCLIResponse(ok=True, text=local_reply, source="local-planner")
+
         codex = find_codex_command(self.config.codex_path)
         if not codex:
+            fallback = build_local_agent_reply(body)
+            if fallback:
+                return CodexCLIResponse(ok=True, text=fallback, source="local-planner")
             return CodexCLIResponse(
                 ok=False,
                 text="Codex CLI was not found. Set ARAFATAI_CODEX_CLI_PATH or install Codex CLI.",
@@ -268,6 +279,9 @@ class CodexCLIBridge:
                     cwd=cwd,
                 )
             except subprocess.TimeoutExpired:
+                fallback = build_local_agent_reply(body)
+                if fallback:
+                    return CodexCLIResponse(ok=True, text=fallback, source="local-planner-timeout-fallback")
                 return CodexCLIResponse(
                     ok=False,
                     text="Codex CLI timed out.",
@@ -280,6 +294,9 @@ class CodexCLIBridge:
                 text = completed.stdout.strip()
 
             if completed.returncode != 0 and not text:
+                fallback = build_local_agent_reply(body)
+                if fallback:
+                    return CodexCLIResponse(ok=True, text=fallback, source="local-planner-error-fallback")
                 return CodexCLIResponse(
                     ok=False,
                     text="Codex CLI failed.",
@@ -288,6 +305,9 @@ class CodexCLIBridge:
                 )
 
             if not text:
+                fallback = build_local_agent_reply(body)
+                if fallback:
+                    return CodexCLIResponse(ok=True, text=fallback, source="local-planner-empty-fallback")
                 return CodexCLIResponse(
                     ok=False,
                     text="Codex CLI returned an empty response.",

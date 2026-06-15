@@ -61,8 +61,10 @@ class TaskStore:
                 events = []
                 task["events"] = events
 
+            event_id = len(events) + 1
             events.append(
                 {
+                    "event_id": event_id,
                     "at": utc_now(),
                     **event,
                 }
