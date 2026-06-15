@@ -124,14 +124,31 @@ Load it from `chrome://extensions` with Developer mode -> Load unpacked.
 Sidebar buttons:
 
 ```text
-Inspect Page  -> read current tab snapshot
-Ask Codex     -> text-only answer through local Codex bridge
-Plan Action   -> propose one safe page action
-Run Action    -> run the planned action after your approval click
+Inspect        -> read current tab snapshot
+Ask            -> chat with reasoning summary, questions, and optional action proposal
+Plan           -> request one next browser action
+Approve & Run  -> run pending actions only after your approval click
 ```
 
-For your import-page test, type `import e click koro`, then click `Inspect Page`,
-`Plan Action`, and `Run Action`. If Chrome shows `Receiving end does not exist`,
+The sidebar uses a provider-independent agent contract:
+
+```json
+{
+  "reply": "short user-facing answer",
+  "reasoning_summary": ["visible evidence-based summary, not hidden chain-of-thought"],
+  "questions": ["ask when the target or intent is unclear"],
+  "actions": [
+    { "type": "click", "target": "text=IMPORT FROM", "reason": "why this matches the request" }
+  ],
+  "needs_approval": true
+}
+```
+
+Codex is only the temporary testing provider. Later, ArafatAI's own model can
+return the same JSON shape and the sidebar will keep working.
+
+For your import-page test, type `import e click koro`, then click `Inspect`,
+`Plan`, and `Approve & Run`. If Chrome shows `Receiving end does not exist`,
 reload the unpacked extension from `chrome://extensions`.
 
 ## Browser Snapshot Example

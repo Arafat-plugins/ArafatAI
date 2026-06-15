@@ -76,22 +76,28 @@ def build_extension_prompt(body: dict[str, object]) -> str:
     goal = str(body.get("goal") or body.get("message") or "")
     page = body.get("page") if isinstance(body.get("page"), dict) else {}
     history = body.get("history") if isinstance(body.get("history"), list) else []
+    approval_policy = str(body.get("approval_policy") or "ask")
 
     instructions = [
         "You are ArafatAI running behind a local browser sidebar extension.",
-        "Return only the final user-facing answer. Do not reveal hidden chain-of-thought.",
+        "This is a temporary Codex-backed provider. The final system will be driven by Arafat's own AI through the same JSON contract.",
+        "Do not reveal hidden chain-of-thought. Use only a concise observable reasoning_summary.",
         "Do not edit files, run shell commands, use browser tools, or claim that an action was completed.",
         "Use only the supplied page snapshot and request context.",
-        "If the user asks for a browser action, describe the safe next step and whether human approval is needed.",
+        "If the page snapshot is insufficient or the target is ambiguous, ask a short question instead of inventing an action.",
+        "Any browser action must be proposed only; the extension executes actions after human approval.",
         "Keep the reply concise and in the same language style as the user.",
     ]
 
-    if mode == "browser_plan":
+    if mode in {"browser_plan", "agent_chat", "agent_plan"}:
         instructions.extend(
             [
                 "Return strict JSON only.",
-                "Schema: {\"reply\":\"short explanation\",\"actions\":[{\"type\":\"click|type|expect|screenshot\",\"target\":\"selector or text=Label\",\"value\":\"optional\",\"reason\":\"why\"}],\"needs_approval\":true|false}",
+                "Schema: {\"reply\":\"short user-facing answer\",\"reasoning_summary\":[\"1-4 short evidence-based bullets\"],\"questions\":[\"short question if needed\"],\"actions\":[{\"type\":\"click|type\",\"target\":\"selector or text=Label\",\"value\":\"optional for type\",\"reason\":\"why this action is safe and relevant\"}],\"needs_approval\":true}",
                 "Use selectors or visible text from the supplied page snapshot. Do not invent completed actions.",
+                "For agent_chat, actions may be empty if explanation or questions are enough.",
+                "For agent_plan, prefer one next action only.",
+                "If approval_policy is plan-only, still return proposed actions but needs_approval must be true.",
             ]
         )
 
@@ -100,6 +106,7 @@ def build_extension_prompt(body: dict[str, object]) -> str:
         "goal": goal,
         "page": page,
         "history": history[-6:],
+        "approval_policy": approval_policy,
     }
 
     return "\n".join(
@@ -189,4 +196,3 @@ class CodexCLIBridge:
                 )
 
             return CodexCLIResponse(ok=True, text=text, source="codex-cli")
-

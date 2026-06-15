@@ -7,26 +7,60 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-  <header>
-    <strong>ArafatAI</strong>
-    <span>Local Codex bridge</span>
+  <header class="topbar">
+    <div>
+      <strong>ArafatAI</strong>
+      <span>Agent sidebar</span>
+    </div>
+    <select id="provider" aria-label="AI provider">
+      <option value="codex">Codex bridge</option>
+      <option value="arafatai" disabled>Own AI later</option>
+    </select>
   </header>
 
   <main>
-    <label>
-      Goal
-      <textarea id="goal" rows="4" placeholder="Ask about this page or request a safe browser plan."></textarea>
-    </label>
+    <section class="statusbar">
+      <span id="status">Ready</span>
+      <button id="inspect" type="button">Inspect</button>
+    </section>
 
-    <div class="row">
-      <button id="inspect" type="button">Inspect Page</button>
-      <button id="ask" type="button">Ask Codex</button>
-    </div>
+    <section id="thread" class="thread" aria-live="polite">
+      <article class="message assistant">
+        <span>ArafatAI</span>
+        <p>Ask me about this tab. I will inspect, reason with a short summary, ask questions when needed, and wait for approval before acting.</p>
+      </article>
+    </section>
 
-    <div class="row">
-      <button id="plan" type="button">Plan Action</button>
-      <button id="run" type="button" disabled>Run Action</button>
-    </div>
+    <section class="panel">
+      <h2>Thinking Summary</h2>
+      <ul id="reasoning">
+        <li>No reasoning yet.</li>
+      </ul>
+    </section>
+
+    <section class="panel">
+      <h2>Questions</h2>
+      <ul id="questions">
+        <li>No questions.</li>
+      </ul>
+    </section>
+
+    <section class="panel actions-panel">
+      <div class="panel-head">
+        <h2>Pending Actions</h2>
+        <select id="approval-mode" aria-label="Approval mode">
+          <option value="ask">Ask before acting</option>
+          <option value="plan-only">Plan only</option>
+        </select>
+      </div>
+      <pre id="actions">No pending action.</pre>
+      <button id="run" type="button" disabled>Approve &amp; Run</button>
+    </section>
+
+    <details>
+      <summary>Page snapshot</summary>
+      <pre id="snapshot">No snapshot yet.</pre>
+    </details>
 
     <details>
       <summary>Bridge settings</summary>
@@ -39,17 +73,15 @@
         <input id="bridge-token" type="password" value="arafatai-local-token">
       </label>
     </details>
-
-    <section>
-      <h2>Snapshot</h2>
-      <pre id="snapshot">No snapshot yet.</pre>
-    </section>
-
-    <section>
-      <h2>Response</h2>
-      <pre id="response">No response yet.</pre>
-    </section>
   </main>
+
+  <footer class="composer">
+    <textarea id="message" rows="3" placeholder="How can I help with this page?"></textarea>
+    <div class="composer-actions">
+      <button id="plan" type="button">Plan</button>
+      <button id="send" type="button">Ask</button>
+    </div>
+  </footer>
 
   <script src="sidepanel.js"></script>
 </body>

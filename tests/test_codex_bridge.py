@@ -27,6 +27,23 @@ def test_browser_plan_prompt_requests_strict_json():
 
     assert "Return strict JSON only." in prompt
     assert '"actions"' in prompt
+    assert '"reasoning_summary"' in prompt
+    assert '"questions"' in prompt
+
+
+def test_agent_chat_prompt_keeps_own_ai_contract_provider_independent():
+    prompt = build_extension_prompt(
+        {
+            "mode": "agent_chat",
+            "goal": "Explain this page",
+            "approval_policy": "ask",
+        }
+    )
+
+    assert "Arafat's own AI" in prompt
+    assert "same JSON contract" in prompt
+    assert "Do not reveal hidden chain-of-thought" in prompt
+    assert '"needs_approval":true' in prompt
 
 
 def test_bridge_server_handler_can_be_constructed(tmp_path):
@@ -39,4 +56,3 @@ def test_bridge_server_handler_can_be_constructed(tmp_path):
     )
 
     assert handler.server_version == "ArafatAIBridge/0.1"
-

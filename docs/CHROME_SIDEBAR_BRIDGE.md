@@ -11,10 +11,13 @@ Chrome sidebar
 
 ArafatAI local bridge
   validates token
-  builds bounded prompt
-  calls Codex CLI in read-only ephemeral mode
+  builds bounded agent-contract prompt
+  calls Codex CLI in read-only ephemeral mode for testing
   returns text to sidebar
 ```
+
+Codex is only the temporary provider. The extension is built around a stable
+JSON contract so Arafat's own AI can replace Codex later.
 
 ## Run Bridge
 
@@ -40,16 +43,39 @@ C:\Users\Arafat\Documents\ArafatAI\extensions\chrome-sidebar
 ## Current Scope
 
 - Page snapshot: URL, title, visible text, clickables, forms, dialogs.
-- Codex CLI response through local bridge.
-- Sidebar displays response.
+- Chat-style sidebar response through local bridge.
+- Visible `reasoning_summary`, not hidden chain-of-thought.
+- Question list when the AI needs clarification.
 - Approved page actions from the sidebar:
-  - `Plan Action` asks Codex for a small browser plan and falls back to matching
+  - `Plan` asks the provider for a small browser plan and falls back to matching
     visible clickable text from the goal.
-  - `Run Action` executes only the currently planned action.
+  - `Approve & Run` executes only the currently planned action.
   - Supported action types: `click`, `type`.
 
 Auto browser actions should be added only after approval gates and evals are
 ready.
+
+## Agent JSON Contract
+
+```json
+{
+  "reply": "short user-facing answer",
+  "reasoning_summary": ["short evidence-based summary"],
+  "questions": ["ask when the next action is unclear"],
+  "actions": [
+    {
+      "type": "click",
+      "target": "text=IMPORT FROM",
+      "value": "",
+      "reason": "visible page text matches the user's import request"
+    }
+  ],
+  "needs_approval": true
+}
+```
+
+Do not put hidden/private chain-of-thought into `reasoning_summary`. Keep it as
+the visible reason a human needs to approve the next action.
 
 ## Troubleshooting
 
@@ -68,9 +94,10 @@ For the import-page test:
 
 ```text
 Goal: import e click koro
-Click: Inspect Page
-Click: Plan Action
-Click: Run Action
+Click: Inspect
+Click: Plan
+Click: Approve & Run
 ```
 
-`Ask Codex` is only for a text answer. It does not click the page.
+`Ask` can answer and propose actions. It does not execute actions. Only
+`Approve & Run` clicks or types into the page.
