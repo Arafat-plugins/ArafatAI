@@ -121,13 +121,12 @@ extensions/chrome-sidebar
 
 Load it from `chrome://extensions` with Developer mode -> Load unpacked.
 
-Sidebar buttons:
+Sidebar behavior:
 
 ```text
-Inspect        -> read current tab snapshot
-Ask            -> chat with reasoning summary, questions, and optional action proposal
-Plan           -> request one next browser action
-Approve & Run  -> run pending actions only after your approval click
+Message box -> chat with the local bridge
+Enter       -> send
+Shift+Enter -> new line
 ```
 
 The sidebar uses a provider-independent agent contract:
@@ -147,9 +146,8 @@ The sidebar uses a provider-independent agent contract:
 Codex is only the temporary testing provider. Later, ArafatAI's own model can
 return the same JSON shape and the sidebar will keep working.
 
-For your import-page test, type `import e click koro`, then click `Inspect`,
-`Plan`, and `Approve & Run`. If Chrome shows `Receiving end does not exist`,
-reload the unpacked extension from `chrome://extensions`.
+The current sidebar is chat-only. Browser actions can still be added behind a
+clean approval flow later, but they are not shown in the simple chat UI.
 
 ## Browser Snapshot Example
 

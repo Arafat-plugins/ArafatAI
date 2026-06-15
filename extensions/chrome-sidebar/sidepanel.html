@@ -10,77 +10,20 @@
   <header class="topbar">
     <div>
       <strong>ArafatAI</strong>
-      <span>Agent sidebar</span>
+      <span id="status">Ready</span>
     </div>
-    <select id="provider" aria-label="AI provider">
-      <option value="codex">Codex bridge</option>
-      <option value="arafatai" disabled>Own AI later</option>
-    </select>
   </header>
 
-  <main>
-    <section class="statusbar">
-      <span id="status">Ready</span>
-      <button id="inspect" type="button">Inspect</button>
-    </section>
-
-    <section id="thread" class="thread" aria-live="polite">
-      <article class="message assistant">
-        <span>ArafatAI</span>
-        <p>Ask me about this tab. I will inspect, reason with a short summary, ask questions when needed, and wait for approval before acting.</p>
-      </article>
-    </section>
-
-    <section class="panel">
-      <h2>Thinking Summary</h2>
-      <ul id="reasoning">
-        <li>No reasoning yet.</li>
-      </ul>
-    </section>
-
-    <section class="panel">
-      <h2>Questions</h2>
-      <ul id="questions">
-        <li>No questions.</li>
-      </ul>
-    </section>
-
-    <section class="panel actions-panel">
-      <div class="panel-head">
-        <h2>Pending Actions</h2>
-        <select id="approval-mode" aria-label="Approval mode">
-          <option value="ask">Ask before acting</option>
-          <option value="plan-only">Plan only</option>
-        </select>
-      </div>
-      <pre id="actions">No pending action.</pre>
-      <button id="run" type="button" disabled>Approve &amp; Run</button>
-    </section>
-
-    <details>
-      <summary>Page snapshot</summary>
-      <pre id="snapshot">No snapshot yet.</pre>
-    </details>
-
-    <details>
-      <summary>Bridge settings</summary>
-      <label>
-        URL
-        <input id="bridge-url" type="url" value="http://127.0.0.1:8792">
-      </label>
-      <label>
-        Token
-        <input id="bridge-token" type="password" value="arafatai-local-token">
-      </label>
-    </details>
+  <main id="thread" class="thread" aria-live="polite">
+    <article class="message assistant">
+      <span>ArafatAI</span>
+      <p>Hi. Ask me anything.</p>
+    </article>
   </main>
 
   <footer class="composer">
-    <textarea id="message" rows="3" placeholder="How can I help with this page?"></textarea>
-    <div class="composer-actions">
-      <button id="plan" type="button">Plan</button>
-      <button id="send" type="button">Ask</button>
-    </div>
+    <textarea id="message" rows="3" placeholder="Message ArafatAI"></textarea>
+    <button id="send" type="button">Send</button>
   </footer>
 
   <script src="sidepanel.js"></script>

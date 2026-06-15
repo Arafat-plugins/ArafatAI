@@ -42,15 +42,10 @@ C:\Users\Arafat\Documents\ArafatAI\extensions\chrome-sidebar
 
 ## Current Scope
 
-- Page snapshot: URL, title, visible text, clickables, forms, dialogs.
-- Chat-style sidebar response through local bridge.
-- Visible `reasoning_summary`, not hidden chain-of-thought.
-- Question list when the AI needs clarification.
-- Approved page actions from the sidebar:
-  - `Plan` asks the provider for a small browser plan and falls back to matching
-    visible clickable text from the goal.
-  - `Approve & Run` executes only the currently planned action.
-  - Supported action types: `click`, `type`.
+- Simple chat-style sidebar response through local bridge.
+- Optional page snapshot attachment. If page inspection fails, normal chat still works.
+- Visible user-facing answer. Structured `questions` can be shown inside the chat reply.
+- No visible action panels in the current UI.
 
 Auto browser actions should be added only after approval gates and evals are
 ready.
@@ -93,11 +88,8 @@ yet. The sidebar also has a fallback that injects `content.js` into normal
 For the import-page test:
 
 ```text
-Goal: import e click koro
-Click: Inspect
-Click: Plan
-Click: Approve & Run
+Message: what is this page?
+Press: Enter
 ```
 
-`Ask` can answer and propose actions. It does not execute actions. Only
-`Approve & Run` clicks or types into the page.
+The current sidebar is chat-only. It does not click or type into the page.

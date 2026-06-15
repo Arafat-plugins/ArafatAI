@@ -36,7 +36,7 @@ def test_agent_chat_prompt_keeps_own_ai_contract_provider_independent():
         {
             "mode": "agent_chat",
             "goal": "Explain this page",
-            "approval_policy": "ask",
+            "approval_policy": "chat-only",
         }
     )
 
@@ -44,6 +44,7 @@ def test_agent_chat_prompt_keeps_own_ai_contract_provider_independent():
     assert "same JSON contract" in prompt
     assert "Do not reveal hidden chain-of-thought" in prompt
     assert '"needs_approval":true' in prompt
+    assert "keep actions empty" in prompt
 
 
 def test_bridge_server_handler_can_be_constructed(tmp_path):

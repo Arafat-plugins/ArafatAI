@@ -1,16 +1,3 @@
-:root {
-  color-scheme: light;
-  --bg: #fbfaf8;
-  --panel: #ffffff;
-  --line: #e7e2da;
-  --text: #1f2933;
-  --muted: #6b7280;
-  --accent: #d97706;
-  --accent-dark: #b45309;
-  --blue: #2563eb;
-  --code: #111827;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -18,8 +5,8 @@
 body {
   min-width: 320px;
   margin: 0;
-  color: var(--text);
-  background: var(--bg);
+  color: #172033;
+  background: #fbfaf8;
   font-family: Arial, sans-serif;
 }
 
@@ -27,13 +14,9 @@ body {
   position: sticky;
   top: 0;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(251, 250, 248, .96);
+  border-bottom: 1px solid #e7e2da;
+  background: #fbfaf8;
 }
 
 .topbar div {
@@ -46,41 +29,24 @@ body {
 }
 
 .topbar span,
-.statusbar span,
-label {
-  color: var(--muted);
+.message span {
+  color: #6b7280;
   font-size: 12px;
-}
-
-main {
-  display: grid;
-  gap: 12px;
-  padding: 12px 14px 132px;
-}
-
-.statusbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: var(--panel);
 }
 
 .thread {
   display: grid;
   gap: 10px;
+  padding: 14px 14px 116px;
 }
 
 .message {
   display: grid;
   gap: 5px;
-  border: 1px solid var(--line);
+  border: 1px solid #e7e2da;
   border-radius: 10px;
   padding: 10px 12px;
-  background: var(--panel);
+  background: #fff;
 }
 
 .message.user {
@@ -89,8 +55,6 @@ main {
 }
 
 .message span {
-  color: var(--muted);
-  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -101,129 +65,6 @@ main {
   line-height: 1.45;
 }
 
-.panel,
-details {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px;
-  background: var(--panel);
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-h2 {
-  margin: 0 0 8px;
-  font-size: 13px;
-}
-
-.panel-head h2 {
-  margin: 0;
-}
-
-ul {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding-left: 18px;
-}
-
-li {
-  line-height: 1.35;
-}
-
-button,
-select,
-textarea,
-input {
-  font: inherit;
-}
-
-button {
-  border: 0;
-  border-radius: 8px;
-  padding: 9px 12px;
-  background: var(--blue);
-  color: #fff;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-button.secondary {
-  background: var(--accent);
-}
-
-button:hover {
-  filter: brightness(.97);
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: .55;
-}
-
-select,
-textarea,
-input {
-  width: 100%;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  color: #111827;
-  background: #fff;
-}
-
-select {
-  max-width: 150px;
-  padding: 7px 8px;
-  font-size: 12px;
-}
-
-textarea,
-input {
-  padding: 9px;
-}
-
-details label {
-  display: grid;
-  gap: 6px;
-  margin-top: 10px;
-  font-weight: 700;
-}
-
-summary {
-  cursor: pointer;
-  font-weight: 700;
-}
-
-pre {
-  min-height: 70px;
-  max-height: 260px;
-  overflow: auto;
-  margin: 0;
-  border: 1px solid #1f2937;
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--code);
-  color: #dbeafe;
-  white-space: pre-wrap;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.actions-panel pre {
-  margin-bottom: 8px;
-}
-
-.actions-panel button {
-  width: 100%;
-  background: var(--accent-dark);
-}
-
 .composer {
   position: fixed;
   right: 0;
@@ -231,23 +72,39 @@ pre {
   left: 0;
   z-index: 3;
   display: grid;
+  grid-template-columns: 1fr auto;
   gap: 8px;
   padding: 12px 14px;
-  border-top: 1px solid var(--line);
-  background: rgba(251, 250, 248, .98);
+  border-top: 1px solid #e7e2da;
+  background: #fbfaf8;
 }
 
-.composer textarea {
+textarea {
+  width: 100%;
   min-height: 72px;
+  max-height: 180px;
   resize: vertical;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 10px;
+  color: #111827;
+  background: #fff;
+  font: inherit;
 }
 
-.composer-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+button {
+  align-self: end;
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 16px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
 }
 
-#plan {
-  background: var(--accent);
+button:disabled {
+  cursor: wait;
+  opacity: .65;
 }

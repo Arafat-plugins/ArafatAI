@@ -97,6 +97,7 @@ def build_extension_prompt(body: dict[str, object]) -> str:
                 "Use selectors or visible text from the supplied page snapshot. Do not invent completed actions.",
                 "For agent_chat, actions may be empty if explanation or questions are enough.",
                 "For agent_plan, prefer one next action only.",
+                "If approval_policy is chat-only, keep actions empty and answer conversationally.",
                 "If approval_policy is plan-only, still return proposed actions but needs_approval must be true.",
             ]
         )
