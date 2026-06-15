@@ -94,8 +94,9 @@ def build_extension_prompt(body: dict[str, object]) -> str:
         instructions.extend(
             [
                 "Return strict JSON only.",
-                "Schema: {\"reply\":\"short user-facing answer\",\"reasoning_summary\":[\"1-4 short evidence-based bullets\"],\"questions\":[\"short question if needed\"],\"actions\":[{\"type\":\"navigate|search|click|type|wait|observe\",\"target\":\"selector, URL, or search query\",\"value\":\"optional query/text/URL/wait ms\",\"mode\":\"web|images\",\"reason\":\"why this action is safe and relevant\"}],\"done\":true|false,\"needs_approval\":true}",
-                "Use selectors or visible text from the supplied page snapshot. Do not invent completed actions.",
+                "Schema: {\"reply\":\"short user-facing answer\",\"reasoning_summary\":[\"1-4 short evidence-based bullets\"],\"questions\":[\"short question if needed\"],\"actions\":[{\"type\":\"navigate|search|click|type|press|wait|observe\",\"target\":\"ref id, selector, URL, or search query\",\"value\":\"optional query/text/URL/key/wait ms\",\"mode\":\"web|images\",\"reason\":\"why this action is safe and relevant\"}],\"done\":true|false,\"needs_approval\":true}",
+                "Use ref ids from page.accessibility_tree when available, for example target: \"ref_12\".",
+                "Use selectors or visible text from the supplied page snapshot only when no ref id exists. Do not invent completed actions.",
                 "For agent_task, act like a browser agent: choose the next 1-3 safe actions, then wait for observations in task_state.",
                 "Use previous task_state observations to decide whether the task is done or what to do next.",
                 "Set done true only when observations or page snapshot show the requested task is complete.",

@@ -29,7 +29,8 @@ def test_browser_plan_prompt_requests_strict_json():
     assert '"actions"' in prompt
     assert '"reasoning_summary"' in prompt
     assert '"questions"' in prompt
-    assert "navigate|search|click|type|wait|observe" in prompt
+    assert "navigate|search|click|type|press|wait|observe" in prompt
+    assert "Use ref ids from page.accessibility_tree" in prompt
 
 
 def test_agent_chat_prompt_keeps_own_ai_contract_provider_independent():

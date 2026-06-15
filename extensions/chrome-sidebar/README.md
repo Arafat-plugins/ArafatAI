@@ -2,11 +2,17 @@
 
 This extension is the browser-side testing shell for ArafatAI.
 
-It does not run the AI brain inside Chrome. The extension reads the current tab
-snapshot and sends it to the local ArafatAI bridge:
+It does not run the AI brain inside Chrome. The extension reads the current tab,
+creates/updates a backend task checkpoint, asks the local bridge for the next
+step, executes safe browser actions, and observes again.
 
 ```text
-Chrome sidebar -> content script snapshot -> http://127.0.0.1:8792/reason -> Codex CLI
+Chrome sidebar
+  -> content script accessibility snapshot
+  -> local task checkpoint
+  -> Codex CLI provider for next action
+  -> execute safe browser action
+  -> observe again
 ```
 
 ## Start The Local Bridge
@@ -34,10 +40,11 @@ python -m arafatai bridge-server --port 8792 --token arafatai-local-token
 
 ## Current Scope
 
-- Reads URL, title, visible text, clickables, forms, and dialogs.
-- Sends snapshot and goal to local bridge.
-- Shows Codex CLI response in the sidebar.
-- Does not auto-click/type yet.
+- Reads URL, title, accessibility tree, clickables, forms, and dialogs.
+- Uses stable `ref_*` element targets when possible.
+- Runs a bounded action-observation loop.
+- Supported actions: `navigate`, `search`, `click`, `type`, `press`, `wait`, `observe`.
+- Saves task checkpoints in `runs/bridge-tasks/`.
 
-Auto actions should be added only after approval gates and evals are ready.
-
+Risky actions such as delete/payment/deploy/reset/publish are blocked locally
+and should ask the user before continuing.

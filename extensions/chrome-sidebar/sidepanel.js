@@ -237,7 +237,7 @@ async function runTabAction(action, tab) {
 }
 
 async function runPageAction(action, tab) {
-  if (!['click', 'type'].includes(action.type)) return null;
+  if (!['click', 'type', 'press'].includes(action.type)) return null;
 
   try {
     const response = await sendTabMessageWithInjection(tab, {

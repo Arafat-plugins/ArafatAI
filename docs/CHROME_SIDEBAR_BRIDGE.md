@@ -52,6 +52,7 @@ C:\Users\Arafat\Documents\ArafatAI\extensions\chrome-sidebar
   - `search`
   - `click`
   - `type`
+  - `press`
   - `wait`
   - `observe`
 
@@ -77,6 +78,21 @@ runs/bridge-tasks/
 
 This keeps the sidebar simple while the backend owns task identity and
 checkpoint history.
+
+## Page Understanding
+
+The content script returns an accessibility-style tree with stable `ref_*`
+targets. The provider should prefer refs over CSS selectors:
+
+```text
+textbox "Search" [ref_4] selector="input[name=\"search_query\"]"
+button "Search" [ref_5] selector="button"
+link "PHP Course" [ref_12] selector="a#video-title"
+```
+
+This pattern is based on the same high-level browser-agent idea used by mature
+browser assistants: read an accessibility-like tree, pick a referenced element,
+execute an action, then observe again.
 
 ## Agent JSON Contract
 

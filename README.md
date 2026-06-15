@@ -152,6 +152,10 @@ The sidebar now runs a small dynamic action-observation loop. The AI can choose
 safe browser actions, the extension runs them, then the updated page observation
 goes back to the AI for the next step.
 
+The page snapshot includes an accessibility-style tree with stable `ref_*`
+targets. The AI should prefer those refs for browser actions because they are
+more reliable than guessing CSS selectors.
+
 Tasks are checkpointed by the local bridge under:
 
 ```text
@@ -172,6 +176,7 @@ navigate -> open a URL in the current tab
 search   -> open Google web/image search
 click    -> click a visible selector or text target
 type     -> type into a visible field
+press    -> press a key, usually Enter after typing into search fields
 wait     -> wait for page changes
 observe  -> re-read the page
 ```
