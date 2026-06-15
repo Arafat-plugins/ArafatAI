@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+from threading import Lock, Thread
 from typing import Any
 from urllib.parse import urlparse
 
@@ -20,7 +21,7 @@ class BridgeServerConfig:
     token: str = DEFAULT_TOKEN
     codex_path: str | None = None
     cwd: Path = Path.cwd()
-    timeout_seconds: int = 120
+    timeout_seconds: int = 300
 
 
 def make_handler(config: BridgeServerConfig):
@@ -32,6 +33,52 @@ def make_handler(config: BridgeServerConfig):
         )
     )
     tasks = TaskStore(config.cwd / "runs" / "bridge-tasks")
+    planning_tasks: set[str] = set()
+    planning_lock = Lock()
+
+    def build_plan_request(task_id: str, body: dict[str, object]) -> dict[str, object] | None:
+        task = tasks.get(task_id)
+        if task is None:
+            return None
+
+        step_state = body.get("task_state") if isinstance(body.get("task_state"), dict) else {}
+        step_state = {
+            **step_state,
+            "task_id": task_id,
+            "observations": tasks.observations(task_id),
+        }
+        return {
+            "mode": "agent_task",
+            "goal": task.get("goal", ""),
+            "page": body.get("page") if isinstance(body.get("page"), dict) else {},
+            "history": task.get("history") if isinstance(task.get("history"), list) else [],
+            "task_state": step_state,
+            "approval_policy": body.get("approval_policy") or "auto-safe-actions",
+        }
+
+    def run_plan_job(task_id: str, body: dict[str, object]) -> None:
+        try:
+            request = build_plan_request(task_id, body)
+            if request is None:
+                return
+
+            task_state = request.get("task_state") if isinstance(request.get("task_state"), dict) else {}
+            result = bridge.reason(request)
+            tasks.append_event(
+                task_id,
+                {
+                    "kind": "plan",
+                    "status": "running" if result.ok else "blocked",
+                    "step": task_state.get("step"),
+                    "ok": result.ok,
+                    "text": result.text,
+                    "source": result.source,
+                    "error": result.error,
+                },
+            )
+        finally:
+            with planning_lock:
+                planning_tasks.discard(task_id)
 
     class ArafatAIBridgeHandler(BaseHTTPRequestHandler):
         server_version = "ArafatAIBridge/0.1"
@@ -53,6 +100,7 @@ def make_handler(config: BridgeServerConfig):
                             "/tasks",
                             "/tasks/{id}",
                             "/tasks/{id}/plan",
+                            "/tasks/{id}/plan-async",
                             "/tasks/{id}/event",
                         ],
                     },
@@ -108,31 +156,19 @@ def make_handler(config: BridgeServerConfig):
                 return
 
             if task_id and path.endswith("/plan"):
-                task = tasks.get(task_id)
-                if task is None:
+                request = build_plan_request(task_id, body)
+                if request is None:
                     self._send_json(404, {"ok": False, "error": "task_not_found"})
                     return
 
-                step_state = body.get("task_state") if isinstance(body.get("task_state"), dict) else {}
-                step_state = {
-                    **step_state,
-                    "task_id": task_id,
-                    "observations": tasks.observations(task_id),
-                }
-                result = bridge.reason(
-                    {
-                        "mode": "agent_task",
-                        "goal": task.get("goal", ""),
-                        "page": body.get("page") if isinstance(body.get("page"), dict) else {},
-                        "history": task.get("history") if isinstance(task.get("history"), list) else [],
-                        "task_state": step_state,
-                        "approval_policy": body.get("approval_policy") or "auto-safe-actions",
-                    }
-                )
+                task_state = request.get("task_state") if isinstance(request.get("task_state"), dict) else {}
+                result = bridge.reason(request)
                 tasks.append_event(
                     task_id,
                     {
                         "kind": "plan",
+                        "status": "running" if result.ok else "blocked",
+                        "step": task_state.get("step"),
                         "ok": result.ok,
                         "text": result.text,
                         "source": result.source,
@@ -147,6 +183,40 @@ def make_handler(config: BridgeServerConfig):
                         "source": result.source,
                         "error": result.error,
                         "task_id": task_id,
+                    },
+                )
+                return
+
+            if task_id and path.endswith("/plan-async"):
+                if tasks.get(task_id) is None:
+                    self._send_json(404, {"ok": False, "error": "task_not_found"})
+                    return
+
+                task_state = body.get("task_state") if isinstance(body.get("task_state"), dict) else {}
+                with planning_lock:
+                    already_planning = task_id in planning_tasks
+                    if not already_planning:
+                        planning_tasks.add(task_id)
+
+                if not already_planning:
+                    tasks.append_event(
+                        task_id,
+                        {
+                            "kind": "planning_started",
+                            "status": "planning",
+                            "step": task_state.get("step"),
+                            "message": "AI planning started in the background.",
+                        },
+                    )
+                    Thread(target=run_plan_job, args=(task_id, body), daemon=True).start()
+
+                self._send_json(
+                    202,
+                    {
+                        "ok": True,
+                        "task_id": task_id,
+                        "status": "planning",
+                        "already_planning": already_planning,
                     },
                 )
                 return

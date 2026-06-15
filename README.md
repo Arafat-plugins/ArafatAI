@@ -168,8 +168,13 @@ Bridge task API:
 POST /tasks              -> create a long-running browser task
 GET  /tasks/{id}         -> read checkpoint and events
 POST /tasks/{id}/plan    -> ask AI for the next step using saved observations
+POST /tasks/{id}/plan-async -> start background AI planning and return immediately
 POST /tasks/{id}/event   -> save page observations/action results
 ```
+
+The sidebar uses `plan-async` and polls the task checkpoint. This avoids killing
+the UI when the temporary Codex provider takes longer than a normal HTTP
+request.
 
 ```text
 navigate -> open a URL in the current tab

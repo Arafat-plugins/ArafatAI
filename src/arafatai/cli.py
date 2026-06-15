@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--token", default=DEFAULT_TOKEN, help="Required x-arafatai-token value.")
     bridge.add_argument("--codex-cli", help="Path to codex executable. Also supports ARAFATAI_CODEX_CLI_PATH.")
     bridge.add_argument("--cwd", default=".", help="Working directory passed to Codex CLI.")
-    bridge.add_argument("--timeout", type=int, default=120, help="Codex CLI timeout in seconds.")
+    bridge.add_argument("--timeout", type=int, default=300, help="Codex CLI timeout in seconds.")
 
     parser.add_argument(
         "--goal",

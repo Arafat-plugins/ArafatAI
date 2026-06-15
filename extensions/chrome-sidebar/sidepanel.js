@@ -8,6 +8,8 @@ const els = {
 const BRIDGE_URL = 'http://127.0.0.1:8792';
 const BRIDGE_TOKEN = 'arafatai-local-token';
 const MAX_AGENT_STEPS = 5;
+const PLAN_POLL_INTERVAL_MS = 1500;
+const MAX_PLAN_POLLS = 240;
 
 let history = [];
 let activeTaskId = null;
@@ -167,19 +169,53 @@ async function bridgePost(path, body) {
   return data;
 }
 
+async function bridgeGet(path) {
+  const response = await fetch(`${BRIDGE_URL}${path}`, {
+    headers: {
+      'x-arafatai-token': BRIDGE_TOKEN,
+    },
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || data.text || 'Bridge request failed.');
+  }
+  return data;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function startTask(goal) {
   const data = await bridgePost('/tasks', { goal, history });
   return data.task;
 }
 
+function latestPlanEvent(task, step) {
+  const events = Array.isArray(task?.events) ? task.events : [];
+  const matches = events.filter((event) => event?.kind === 'plan' && Number(event.step) === Number(step));
+  return matches[matches.length - 1] || null;
+}
+
 async function planTask(taskId, page, taskState) {
-  const data = await bridgePost(`/tasks/${taskId}/plan`, {
+  await bridgePost(`/tasks/${taskId}/plan-async`, {
     page,
     task_state: taskState,
     approval_policy: 'auto-safe-actions',
   });
 
-  return parseAgentReply(data.text || '');
+  for (let poll = 1; poll <= MAX_PLAN_POLLS; poll += 1) {
+    setStatus(`Planning ${taskState.step}/${MAX_AGENT_STEPS}...`);
+    await sleep(PLAN_POLL_INTERVAL_MS);
+    const data = await bridgeGet(`/tasks/${taskId}`);
+    const plan = latestPlanEvent(data.task, taskState.step);
+    if (!plan) continue;
+    if (!plan.ok) throw new Error(plan.error || plan.text || 'Planning failed.');
+    return parseAgentReply(plan.text || '');
+  }
+
+  throw new Error(`Still planning after ${Math.round((MAX_PLAN_POLLS * PLAN_POLL_INTERVAL_MS) / 1000)}s. Task checkpoint is saved.`);
 }
 
 async function recordTaskEvent(taskId, event) {

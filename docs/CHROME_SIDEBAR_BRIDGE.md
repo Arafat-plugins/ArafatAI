@@ -67,6 +67,7 @@ The bridge exposes a minimal long-running task API:
 POST /tasks              create task checkpoint
 GET  /tasks/{id}         inspect task state
 POST /tasks/{id}/plan    ask AI for the next action using saved observations
+POST /tasks/{id}/plan-async start background AI planning and return immediately
 POST /tasks/{id}/event   append observation/action result
 ```
 
@@ -77,7 +78,8 @@ runs/bridge-tasks/
 ```
 
 This keeps the sidebar simple while the backend owns task identity and
-checkpoint history.
+checkpoint history. The sidebar uses `plan-async` and polls `GET /tasks/{id}`,
+so a slow provider does not block the UI request.
 
 ## Page Understanding
 

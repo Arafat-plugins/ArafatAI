@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from arafatai.bridge.codex_cli import CodexCLIConfig, build_extension_prompt
+from arafatai.bridge.codex_cli import CodexCLIConfig, build_extension_prompt, compact_page
 from arafatai.bridge.server import BridgeServerConfig, make_handler
 
 
@@ -93,4 +93,21 @@ def test_bridge_server_handler_can_be_constructed(tmp_path):
 
 
 def test_bridge_server_default_timeout_supports_longer_tasks():
-    assert BridgeServerConfig().timeout_seconds == 120
+    assert BridgeServerConfig().timeout_seconds == 300
+
+
+def test_compact_page_limits_large_snapshots():
+    page = compact_page(
+        {
+            "url": "https://example.test",
+            "title": "Huge",
+            "accessibility_tree": "x" * 7000,
+            "visible_text": "y" * 2000,
+            "clickables": [{"ref": f"ref_{i}", "text": "Button", "selector": "button"} for i in range(100)],
+        }
+    )
+
+    assert page["url"] == "https://example.test"
+    assert len(page["accessibility_tree"]) < 6100
+    assert len(page["visible_text"]) < 1300
+    assert len(page["clickables"]) == 80

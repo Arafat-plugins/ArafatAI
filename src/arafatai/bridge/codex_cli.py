@@ -24,7 +24,7 @@ DEFAULT_TOKEN = "arafatai-local-token"
 class CodexCLIConfig:
     codex_path: str | None = None
     cwd: Path = Path.cwd()
-    timeout_seconds: int = 120
+    timeout_seconds: int = 300
     sandbox: str = "read-only"
 
 
@@ -69,14 +69,103 @@ def find_codex_command(configured: str | None = None) -> str | None:
     return None
 
 
+def _shorten(value: object, limit: int) -> str:
+    text = str(value or "")
+    return text if len(text) <= limit else text[:limit] + f"\n[truncated {len(text) - limit} chars]"
+
+
+def _compact_clickable(item: object) -> dict[str, object] | None:
+    if not isinstance(item, dict):
+        return None
+    return {
+        "ref": item.get("ref") or "",
+        "text": _shorten(item.get("text"), 140),
+        "selector": _shorten(item.get("selector"), 180),
+        "role": item.get("role") or "",
+        "type": item.get("type") or "",
+        "href": _shorten(item.get("href"), 220),
+    }
+
+
+def _compact_form(form: object) -> dict[str, object] | None:
+    if not isinstance(form, dict):
+        return None
+    fields = form.get("fields") if isinstance(form.get("fields"), list) else []
+    return {
+        "selector": _shorten(form.get("selector"), 180),
+        "action": _shorten(form.get("action"), 220),
+        "method": form.get("method") or "",
+        "fields": [
+            {
+                "ref": field.get("ref") or "",
+                "selector": _shorten(field.get("selector"), 180),
+                "name": field.get("name") or "",
+                "type": field.get("type") or "",
+                "placeholder": _shorten(field.get("placeholder"), 120),
+            }
+            for field in fields[:20]
+            if isinstance(field, dict)
+        ],
+    }
+
+
+def compact_page(page: dict[str, object]) -> dict[str, object]:
+    clickables = page.get("clickables") if isinstance(page.get("clickables"), list) else []
+    forms = page.get("forms") if isinstance(page.get("forms"), list) else []
+    dialogs = page.get("dialogs") if isinstance(page.get("dialogs"), list) else []
+
+    return {
+        "url": page.get("url") or "",
+        "title": page.get("title") or "",
+        "viewport": page.get("viewport") if isinstance(page.get("viewport"), dict) else {},
+        "accessibility_tree": _shorten(page.get("accessibility_tree"), 6000),
+        "visible_text": _shorten(page.get("visible_text"), 1200),
+        "clickables": [item for item in (_compact_clickable(item) for item in clickables[:80]) if item],
+        "forms": [item for item in (_compact_form(form) for form in forms[:10]) if item],
+        "dialogs": [
+            {
+                "selector": _shorten(dialog.get("selector"), 180),
+                "text": _shorten(dialog.get("text"), 400),
+            }
+            for dialog in dialogs[:8]
+            if isinstance(dialog, dict)
+        ],
+    }
+
+
+def compact_task_state(task_state: dict[str, object]) -> dict[str, object]:
+    observations = task_state.get("observations") if isinstance(task_state.get("observations"), list) else []
+    compact_observations = []
+    for observation in observations[-8:]:
+        if not isinstance(observation, dict):
+            continue
+        compact_observations.append(
+            {
+                "kind": observation.get("kind") or "",
+                "status": observation.get("status") or "",
+                "message": _shorten(observation.get("message"), 300),
+                "result": observation.get("result") if isinstance(observation.get("result"), dict) else {},
+            }
+        )
+
+    return {
+        "task_id": task_state.get("task_id") or "",
+        "step": task_state.get("step") or "",
+        "max_steps": task_state.get("max_steps") or "",
+        "observations": compact_observations,
+    }
+
+
 def build_extension_prompt(body: dict[str, object]) -> str:
     """Build a bounded prompt for extension/sidebar requests."""
 
     mode = str(body.get("mode") or "chat")
     goal = str(body.get("goal") or body.get("message") or "")
-    page = body.get("page") if isinstance(body.get("page"), dict) else {}
+    raw_page = body.get("page") if isinstance(body.get("page"), dict) else {}
+    page = compact_page(raw_page)
     history = body.get("history") if isinstance(body.get("history"), list) else []
-    task_state = body.get("task_state") if isinstance(body.get("task_state"), dict) else {}
+    raw_task_state = body.get("task_state") if isinstance(body.get("task_state"), dict) else {}
+    task_state = compact_task_state(raw_task_state)
     approval_policy = str(body.get("approval_policy") or "ask")
 
     instructions = [
