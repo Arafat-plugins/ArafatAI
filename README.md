@@ -121,6 +121,19 @@ extensions/chrome-sidebar
 
 Load it from `chrome://extensions` with Developer mode -> Load unpacked.
 
+Sidebar buttons:
+
+```text
+Inspect Page  -> read current tab snapshot
+Ask Codex     -> text-only answer through local Codex bridge
+Plan Action   -> propose one safe page action
+Run Action    -> run the planned action after your approval click
+```
+
+For your import-page test, type `import e click koro`, then click `Inspect Page`,
+`Plan Action`, and `Run Action`. If Chrome shows `Receiving end does not exist`,
+reload the unpacked extension from `chrome://extensions`.
+
 ## Browser Snapshot Example
 
 Snapshot reads the page like an agent: URL, title, visible text, clickables,
