@@ -46,6 +46,7 @@ C:\Users\Arafat\Documents\ArafatAI\extensions\chrome-sidebar
 - Optional page snapshot attachment. If page inspection fails, normal chat still works.
 - Visible user-facing answer. Structured `questions` can be shown inside the chat reply.
 - No visible action panels in the current UI.
+- Safe tab-level actions from chat: `search` and `navigate`.
 
 Auto browser actions should be added only after approval gates and evals are
 ready.
@@ -93,3 +94,7 @@ Press: Enter
 ```
 
 The current sidebar is chat-only. It does not click or type into the page.
+
+Chrome internal pages such as `chrome://newtab` do not allow extension DOM
+inspection. The sidebar sends a minimal tab snapshot and can still perform safe
+tab navigation, for example opening Google image search from a chat request.

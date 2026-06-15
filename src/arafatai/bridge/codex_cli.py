@@ -93,9 +93,11 @@ def build_extension_prompt(body: dict[str, object]) -> str:
         instructions.extend(
             [
                 "Return strict JSON only.",
-                "Schema: {\"reply\":\"short user-facing answer\",\"reasoning_summary\":[\"1-4 short evidence-based bullets\"],\"questions\":[\"short question if needed\"],\"actions\":[{\"type\":\"click|type\",\"target\":\"selector or text=Label\",\"value\":\"optional for type\",\"reason\":\"why this action is safe and relevant\"}],\"needs_approval\":true}",
+                "Schema: {\"reply\":\"short user-facing answer\",\"reasoning_summary\":[\"1-4 short evidence-based bullets\"],\"questions\":[\"short question if needed\"],\"actions\":[{\"type\":\"search|navigate|click|type\",\"target\":\"selector, URL, or search query\",\"value\":\"optional query/text/URL\",\"mode\":\"web|images\",\"reason\":\"why this action is safe and relevant\"}],\"needs_approval\":true}",
                 "Use selectors or visible text from the supplied page snapshot. Do not invent completed actions.",
                 "For agent_chat, actions may be empty if explanation or questions are enough.",
+                "If approval_policy is chat-safe-actions and the user clearly asks to search or open a URL, return one search or navigate action.",
+                "For Chrome internal pages such as chrome://newtab, do not ask for a DOM snapshot; use search or navigate when the user asks for it.",
                 "For agent_plan, prefer one next action only.",
                 "If approval_policy is chat-only, keep actions empty and answer conversationally.",
                 "If approval_policy is plan-only, still return proposed actions but needs_approval must be true.",

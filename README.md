@@ -149,6 +149,17 @@ return the same JSON shape and the sidebar will keep working.
 The current sidebar is chat-only. Browser actions can still be added behind a
 clean approval flow later, but they are not shown in the simple chat UI.
 
+The simple chat can still perform safe tab-level actions:
+
+```text
+image search koro       -> opens Google Images in the current tab
+search wordpress plugin -> opens Google search in the current tab
+```
+
+Chrome internal pages such as `chrome://newtab` cannot be inspected like a
+normal website DOM. For those pages, ArafatAI uses tab navigation instead of DOM
+clicking.
+
 ## Browser Snapshot Example
 
 Snapshot reads the page like an agent: URL, title, visible text, clickables,

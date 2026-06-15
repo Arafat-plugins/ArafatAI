@@ -50,15 +50,29 @@ function isScriptableTab(tab) {
   return /^https?:\/\//.test(tab?.url || '') || /^file:\/\//.test(tab?.url || '');
 }
 
+function fallbackTabSnapshot(tab) {
+  return {
+    url: tab?.url || '',
+    title: tab?.title || '',
+    visible_text: tab?.url?.startsWith('chrome://')
+      ? 'Chrome internal page. The extension cannot inspect this page DOM, but it can navigate the tab.'
+      : '',
+    clickables: [],
+    forms: [],
+    dialogs: [],
+    captured_at: new Date().toISOString(),
+  };
+}
+
 async function optionalPageSnapshot() {
   const tab = await activeTab();
-  if (!tab?.id || !isScriptableTab(tab)) return {};
+  if (!tab?.id || !isScriptableTab(tab)) return fallbackTabSnapshot(tab);
 
   try {
     const response = await chrome.tabs.sendMessage(tab.id, { type: 'ARAFATAI_SNAPSHOT' });
-    return response?.ok ? response.snapshot : {};
+    return response?.ok ? response.snapshot : fallbackTabSnapshot(tab);
   } catch (error) {
-    if (!isMissingContentScriptError(error)) return {};
+    if (!isMissingContentScriptError(error)) return fallbackTabSnapshot(tab);
 
     try {
       await chrome.scripting.executeScript({
@@ -66,9 +80,9 @@ async function optionalPageSnapshot() {
         files: ['content.js'],
       });
       const response = await chrome.tabs.sendMessage(tab.id, { type: 'ARAFATAI_SNAPSHOT' });
-      return response?.ok ? response.snapshot : {};
+      return response?.ok ? response.snapshot : fallbackTabSnapshot(tab);
     } catch {
-      return {};
+      return fallbackTabSnapshot(tab);
     }
   }
 }
@@ -86,25 +100,45 @@ function extractJsonObject(text) {
   return candidate.slice(start, end + 1);
 }
 
-function readableReply(text) {
+function parseAgentReply(text) {
   const jsonText = extractJsonObject(text);
-  if (!jsonText) return String(text || '');
+  if (!jsonText) {
+    return {
+      reply: String(text || ''),
+      questions: [],
+      actions: [],
+    };
+  }
 
   try {
     const data = JSON.parse(jsonText);
-    const lines = [];
-    if (data.reply || data.answer) lines.push(String(data.reply || data.answer));
-    if (Array.isArray(data.questions) && data.questions.length) {
-      lines.push('', 'Question:', ...data.questions.map((item) => `- ${item}`));
-    }
-    return lines.join('\n').trim() || String(text || '');
+    return {
+      reply: String(data.reply || data.answer || ''),
+      questions: Array.isArray(data.questions) ? data.questions : [],
+      actions: Array.isArray(data.actions) ? data.actions : [],
+    };
   } catch {
-    return String(text || '');
+    return {
+      reply: String(text || ''),
+      questions: [],
+      actions: [],
+    };
   }
 }
 
-async function askBridge(goal) {
-  const page = await optionalPageSnapshot();
+function readableReply(agentReply, actionResults = []) {
+  const lines = [];
+  if (agentReply.reply) lines.push(agentReply.reply);
+  if (Array.isArray(agentReply.questions) && agentReply.questions.length) {
+    lines.push('', 'Question:', ...agentReply.questions.map((item) => `- ${item}`));
+  }
+  if (actionResults.length) {
+    lines.push('', ...actionResults.map((item) => item.message));
+  }
+  return lines.join('\n').trim();
+}
+
+async function askBridge(goal, page) {
   const response = await fetch(`${BRIDGE_URL}/reason`, {
     method: 'POST',
     headers: {
@@ -117,7 +151,7 @@ async function askBridge(goal) {
       page,
       history,
       provider: 'codex',
-      approval_policy: 'chat-only',
+      approval_policy: 'chat-safe-actions',
     }),
   });
 
@@ -126,7 +160,82 @@ async function askBridge(goal) {
     throw new Error(data.error || data.text || 'Bridge request failed.');
   }
 
-  return readableReply(data.text || '');
+  return parseAgentReply(data.text || '');
+}
+
+function cleanSearchQuery(goal) {
+  const lower = normalizeText(goal).toLowerCase();
+  const withoutCommands = lower
+    .replace(/\b(ekhane|ekhankar|current|page|url|ache|ase|e|a|dia|diye|google|search|koro|kor|korte|dao|daw|please|image|images|img|photo|chobi|chhobi|jekono|j kono|any)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return withoutCommands || (/\b(image|images|photo|chobi|chhobi)\b/i.test(goal) ? 'images' : 'search');
+}
+
+function inferSafeActions(goal, page) {
+  const text = normalizeText(goal);
+  const lower = text.toLowerCase();
+  const wantsSearch = /\b(search|google|khujo|khuj|find)\b/i.test(lower);
+  const wantsImages = /\b(image|images|photo|chobi|chhobi)\b/i.test(lower);
+
+  if (wantsSearch || wantsImages) {
+    return [{
+      type: 'search',
+      value: cleanSearchQuery(text),
+      mode: wantsImages ? 'images' : 'web',
+      reason: page?.url?.startsWith('chrome://')
+        ? 'Chrome internal new-tab page cannot be DOM-controlled, so navigation is used.'
+        : 'User asked to search from the current tab.',
+    }];
+  }
+
+  return [];
+}
+
+function safeUrl(rawUrl) {
+  try {
+    const url = new URL(String(rawUrl || ''));
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+async function runSafeAction(action) {
+  const tab = await activeTab();
+  if (!tab?.id) return { ok: false, message: 'No active tab found.' };
+
+  if (action.type === 'search') {
+    const query = normalizeText(action.value || action.target || 'images');
+    const params = new URLSearchParams({ q: query || 'images' });
+    if (action.mode === 'images') params.set('tbm', 'isch');
+    const url = `https://www.google.com/search?${params.toString()}`;
+    await chrome.tabs.update(tab.id, { url });
+    return { ok: true, message: `Opened Google ${action.mode === 'images' ? 'image ' : ''}search for: ${query}` };
+  }
+
+  if (action.type === 'navigate') {
+    const url = safeUrl(action.url || action.value || action.target);
+    if (!url) return { ok: false, message: 'Blocked unsafe or invalid navigation URL.' };
+    await chrome.tabs.update(tab.id, { url });
+    return { ok: true, message: `Opened: ${url}` };
+  }
+
+  return { ok: false, message: `Action type "${action.type}" is not available in the simple chat UI yet.` };
+}
+
+async function runSafeActions(actions) {
+  const allowed = (Array.isArray(actions) ? actions : [])
+    .filter((action) => action && ['search', 'navigate'].includes(action.type))
+    .slice(0, 1);
+  const results = [];
+
+  for (const action of allowed) {
+    results.push(await runSafeAction(action));
+  }
+
+  return results;
 }
 
 async function sendMessage() {
@@ -139,8 +248,11 @@ async function sendMessage() {
   setStatus('Thinking...');
 
   try {
-    const reply = await askBridge(goal);
-    addMessage('assistant', reply || '(empty response)');
+    const page = await optionalPageSnapshot();
+    const agentReply = await askBridge(goal, page);
+    const actions = agentReply.actions.length ? agentReply.actions : inferSafeActions(goal, page);
+    const actionResults = await runSafeActions(actions);
+    addMessage('assistant', readableReply(agentReply, actionResults) || '(empty response)');
     setStatus('Ready');
   } catch (error) {
     addMessage('assistant', error.message || String(error));

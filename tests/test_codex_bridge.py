@@ -29,6 +29,7 @@ def test_browser_plan_prompt_requests_strict_json():
     assert '"actions"' in prompt
     assert '"reasoning_summary"' in prompt
     assert '"questions"' in prompt
+    assert "search|navigate|click|type" in prompt
 
 
 def test_agent_chat_prompt_keeps_own_ai_contract_provider_independent():
@@ -45,6 +46,21 @@ def test_agent_chat_prompt_keeps_own_ai_contract_provider_independent():
     assert "Do not reveal hidden chain-of-thought" in prompt
     assert '"needs_approval":true' in prompt
     assert "keep actions empty" in prompt
+
+
+def test_agent_chat_safe_actions_can_search_from_chrome_newtab():
+    prompt = build_extension_prompt(
+        {
+            "mode": "agent_chat",
+            "goal": "image search koro",
+            "approval_policy": "chat-safe-actions",
+            "page": {"url": "chrome://newtab/", "title": "New Tab"},
+        }
+    )
+
+    assert "return one search or navigate action" in prompt
+    assert "chrome://newtab" in prompt
+    assert "use search or navigate" in prompt
 
 
 def test_bridge_server_handler_can_be_constructed(tmp_path):
