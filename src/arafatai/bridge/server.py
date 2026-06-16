@@ -93,7 +93,7 @@ def make_handler(config: BridgeServerConfig):
                     200,
                     {
                         "ok": True,
-                        "service": "ArafatAI local Codex bridge",
+                        "service": "AQL AI local Codex bridge",
                         "routes": [
                             "/health",
                             "/reason",
@@ -281,11 +281,11 @@ def make_handler(config: BridgeServerConfig):
 def run_server(config: BridgeServerConfig) -> None:
     handler = make_handler(config)
     server = ThreadingHTTPServer((config.host, config.port), handler)
-    print(f"ArafatAI bridge listening on http://{config.host}:{config.port}")
+    print(f"AQL AI bridge listening on http://{config.host}:{config.port}")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping ArafatAI bridge.")
+        print("\nStopping AQL AI bridge.")
     finally:
         server.server_close()

@@ -1,6 +1,6 @@
-# ArafatAI Chrome Sidebar MVP
+# AQL AI Chrome Sidebar MVP
 
-This extension is the browser-side testing shell for ArafatAI.
+This extension is the browser-side testing shell for AQL AI.
 
 It does not run the AI brain inside Chrome. The extension reads the current tab,
 creates/updates a backend task checkpoint, asks the local bridge for the next
@@ -17,7 +17,7 @@ Chrome sidebar
 
 ## Start The Local Bridge
 
-From the ArafatAI repo:
+From this repo:
 
 ```bash
 python -m arafatai bridge-server --port 8792 --token arafatai-local-token
@@ -36,7 +36,7 @@ python -m arafatai bridge-server --port 8792 --token arafatai-local-token
 2. Enable Developer mode.
 3. Click `Load unpacked`.
 4. Select `extensions/chrome-sidebar`.
-5. Open any page and click the ArafatAI extension/sidebar.
+5. Open any page and click the AQL AI extension/sidebar.
 
 ## Current Scope
 

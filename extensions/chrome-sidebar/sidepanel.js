@@ -30,7 +30,7 @@ function addMessage(role, text) {
   article.className = `message ${role}`;
 
   const name = document.createElement('span');
-  name.textContent = role === 'user' ? 'You' : 'ArafatAI';
+  name.textContent = role === 'user' ? 'You' : 'AQL AI';
 
   const body = document.createElement('p');
   body.textContent = text || '(empty)';

@@ -1,4 +1,4 @@
-# ArafatAI
+# AQL AI
 
 Personal AI operating system for Arafat.
 
@@ -99,7 +99,7 @@ Risky actions are blocked unless `--yes` is passed.
 
 ## Local Codex Bridge For Sidebar Testing
 
-The Chrome sidebar extension talks to a local ArafatAI bridge. The bridge then
+The Chrome sidebar extension talks to a local AQL AI bridge. The bridge then
 calls Codex CLI in read-only, ephemeral mode for complex planning. For obvious
 safe browser intents, a small Python local planner can answer immediately so
 basic navigation/search tasks do not time out when Codex is slow.
@@ -147,7 +147,7 @@ The sidebar uses a provider-independent agent contract:
 }
 ```
 
-Codex is only the temporary testing provider. Later, ArafatAI's own model can
+Codex is only the temporary testing provider. Later, AQL AI's own model can
 return the same JSON shape and the sidebar will keep working.
 
 The sidebar now runs a small dynamic action-observation loop. The AI can choose
@@ -203,7 +203,7 @@ observe  -> re-read the page
 ```
 
 Chrome internal pages such as `chrome://newtab` cannot be inspected like a
-normal website DOM. For those pages, ArafatAI uses tab navigation instead of DOM
+normal website DOM. For those pages, AQL AI uses tab navigation instead of DOM
 clicking. If the task needs credentials, payment, CAPTCHA, destructive changes,
 publishing, or irreversible admin settings, the AI should ask before continuing.
 
@@ -240,7 +240,7 @@ python -m arafatai remember \
 ## Tiny GPT Learning Module
 
 Tiny GPT is for learning how LLM training works by hand. It is not meant to be
-the production brain for ArafatAI.
+the production brain for AQL AI.
 
 Install the optional PyTorch dependency when you are ready for this part:
 
@@ -263,5 +263,5 @@ Generate text:
 ```bash
 python -m arafatai.learning.tiny_gpt.generate \
   --checkpoint-dir runs/tiny-gpt \
-  --prompt "ArafatAI"
+  --prompt "AQL AI"
 ```

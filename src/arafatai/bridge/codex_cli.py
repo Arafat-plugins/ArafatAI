@@ -171,7 +171,7 @@ def build_extension_prompt(body: dict[str, object]) -> str:
     approval_policy = str(body.get("approval_policy") or "ask")
 
     instructions = [
-        "You are ArafatAI running behind a local browser sidebar extension.",
+        "You are AQL AI running behind a local browser sidebar extension.",
         "This is a temporary Codex-backed provider. The final system will be driven by Arafat's own AI through the same JSON contract.",
         "Do not reveal hidden chain-of-thought. Use only a concise observable reasoning_summary.",
         "Do not edit files, run shell commands, use browser tools, or claim that an action was completed.",

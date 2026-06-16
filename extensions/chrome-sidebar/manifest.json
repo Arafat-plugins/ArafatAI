@@ -1,8 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "ArafatAI Sidebar",
+  "name": "AQL AI Sidebar",
   "version": "0.1.0",
-  "description": "Local ArafatAI sidebar that sends page snapshots to the Codex CLI bridge.",
+  "description": "Local AQL AI sidebar that sends page snapshots to the Codex CLI bridge.",
+  "icons": {
+    "16": "assets/aql-brain-16.png",
+    "32": "assets/aql-brain-32.png",
+    "48": "assets/aql-brain-48.png",
+    "128": "assets/aql-brain-128.png"
+  },
   "permissions": ["activeTab", "scripting", "sidePanel", "tabs"],
   "host_permissions": ["<all_urls>", "http://127.0.0.1:8792/*"],
   "background": {
@@ -19,6 +25,12 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "ArafatAI"
+    "default_title": "AQL AI",
+    "default_icon": {
+      "16": "assets/aql-brain-16.png",
+      "32": "assets/aql-brain-32.png",
+      "48": "assets/aql-brain-48.png",
+      "128": "assets/aql-brain-128.png"
+    }
   }
 }
