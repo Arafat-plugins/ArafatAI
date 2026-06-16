@@ -21,7 +21,7 @@ class BridgeServerConfig:
     token: str = DEFAULT_TOKEN
     codex_path: str | None = None
     cwd: Path = Path.cwd()
-    timeout_seconds: int = 300
+    timeout_seconds: int = 45
 
 
 def make_handler(config: BridgeServerConfig):

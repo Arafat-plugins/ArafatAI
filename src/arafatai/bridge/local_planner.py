@@ -89,6 +89,7 @@ def build_local_agent_reply(body: dict[str, object], *, allow_question_fallback:
 
     goal = _normalize(str(body.get("goal") or body.get("message") or ""))
     page = body.get("page") if isinstance(body.get("page"), dict) else {}
+    task_state = body.get("task_state") if isinstance(body.get("task_state"), dict) else {}
     if not goal:
         return _dump(
             reply="What should I do on this page?",
@@ -118,6 +119,10 @@ def build_local_agent_reply(body: dict[str, object], *, allow_question_fallback:
             done=False,
             needs_approval=True,
         )
+
+    read_only_reply = _read_only_reply(goal, page)
+    if read_only_reply:
+        return read_only_reply
 
     completion_reply = _completion_plan(goal, page)
     if completion_reply:
@@ -183,6 +188,21 @@ def build_local_agent_reply(body: dict[str, object], *, allow_question_fallback:
             needs_approval=False,
         )
 
+    theme_wait_action = _theme_wait_plan(goal, page, task_state)
+    if theme_wait_action:
+        return _dump(
+            reply="Themes page open ache, theme list load/visible howar jonno wait kore abar check korchi.",
+            reasoning_summary=[
+                _page_evidence(page),
+                theme_wait_action.pop("_reasoning"),
+                "The task is not complete yet, so the loop should continue.",
+            ],
+            questions=[],
+            actions=[theme_wait_action],
+            done=False,
+            needs_approval=False,
+        )
+
     click_action = _click_plan(goal, page)
     if click_action:
         return _dump(
@@ -212,6 +232,314 @@ def build_local_agent_reply(body: dict[str, object], *, allow_question_fallback:
         done=False,
         needs_approval=True,
     )
+
+
+def _read_only_reply(goal: str, page: dict[str, object]) -> str | None:
+    meta_reply = _meta_question_reply(goal, page)
+    if meta_reply:
+        return meta_reply
+
+    theme_reply = _theme_list_reply(goal, page)
+    if theme_reply:
+        return theme_reply
+
+    if _has_explicit_action_intent(goal):
+        return None
+
+    pricing_reply = _pricing_reply(goal, page)
+    if pricing_reply:
+        return pricing_reply
+
+    current_site_reply = _current_site_reply(goal, page)
+    if current_site_reply:
+        return current_site_reply
+
+    return None
+
+
+def _meta_question_reply(goal: str, page: dict[str, object]) -> str | None:
+    lower = goal.lower()
+    asks_fast_answer = (
+        ("fast" in lower or "taratari" in lower or "quick" in lower)
+        and re.search(r"\b(ans|answer|reply|diccho|diteso|dile|daw|dao)\b", lower)
+    )
+    asks_how_it_works = (
+        "kivabe" in lower
+        and re.search(r"\b(ans|answer|reply|kaj|work|korcho|diccho|diteso)\b", lower)
+    )
+    if not asks_fast_answer and not asks_how_it_works:
+        return None
+
+    return _dump(
+        reply=(
+            "Fast answer dicchi karon eta simple/local route e solve hocche. "
+            "Greeting, current page info, obvious safe click/search, ba visible page snapshot theke list/price "
+            "local planner direct answer kore. Complex/unclear task hole then Codex/AI planner e jay, tai wait hote pare."
+        ),
+        reasoning_summary=[
+            _page_evidence(page),
+            "The user asked how the sidebar answered quickly, so this is a conversational explanation.",
+            "No browser action is needed for this question.",
+        ],
+        questions=[],
+        actions=[],
+        done=True,
+        needs_approval=False,
+    )
+
+
+def _current_site_reply(goal: str, page: dict[str, object]) -> str | None:
+    lower = goal.lower()
+    asks_current_site = (
+        "kon site" in lower
+        or "which site" in lower
+        or "what site" in lower
+        or "current site" in lower
+        or "current page" in lower
+        or "kothay acho" in lower
+        or "kothai acho" in lower
+        or "where am i" in lower
+        or "where are you" in lower
+    )
+    if not asks_current_site:
+        return None
+
+    url = str(page.get("url") or "").strip()
+    title = str(page.get("title") or "").strip()
+    if not url:
+        return _dump(
+            reply="Current tab er URL snapshot e paini.",
+            reasoning_summary=["The user asked which site is open, but no page URL was supplied."],
+            questions=["Which tab or URL should I inspect?"],
+            actions=[],
+            done=False,
+            needs_approval=True,
+        )
+
+    parsed = urlparse(url)
+    host = parsed.netloc or url
+    reply = f"Haan, ekhon {host} site e achi."
+    if title:
+        reply += f"\nPage: {title}"
+    reply += f"\nURL: {url}"
+
+    return _dump(
+        reply=reply,
+        reasoning_summary=[
+            _page_evidence(page),
+            "The user asked for the current site/page, so no browser action is needed.",
+        ],
+        questions=[],
+        actions=[],
+        done=True,
+        needs_approval=False,
+    )
+
+
+def _pricing_reply(goal: str, page: dict[str, object]) -> str | None:
+    lower = goal.lower()
+    asks_pricing = re.search(r"\b(price|pricing|plan|plans|dam|taka|koto)\b", lower)
+    if not asks_pricing:
+        return None
+
+    visible_text = _normalize(str(page.get("visible_text") or ""))
+    if "$" not in visible_text:
+        return None
+
+    plans = _pricing_plans_from_text(visible_text)
+    if not plans:
+        return None
+
+    lines = ["Current page snapshot theke pricing list:"]
+    for plan in plans[:6]:
+        label = str(plan["name"])
+        if plan.get("sites"):
+            label += f" ({plan['sites']})"
+
+        price = str(plan["price"])
+        term = str(plan.get("term") or "").lower()
+        if term:
+            price += f"/{term}"
+
+        details = [price]
+        if plan.get("regular"):
+            details.append(f"regular {plan['regular']}")
+        if plan.get("save"):
+            details.append(f"save {plan['save']}")
+        if plan.get("renewal"):
+            details.append(f"renews {plan['renewal']}/yr")
+
+        lines.append(f"- {label}: {', '.join(details)}")
+
+    return _dump(
+        reply="\n".join(lines),
+        reasoning_summary=[
+            _page_evidence(page),
+            f"Found {len(plans)} pricing item(s) in the current page visible text.",
+            "This is a read-only answer, so no browser action is needed.",
+        ],
+        questions=[],
+        actions=[],
+        done=True,
+        needs_approval=False,
+    )
+
+
+def _pricing_plans_from_text(text: str) -> list[dict[str, str]]:
+    plans: list[dict[str, str]] = []
+    plan_pattern = re.compile(
+        r"(?:(?:Most Popular)\s+)?"
+        r"(?P<sites>(?:\d+\s+Sites?|Unlimited Sites?))\s+"
+        r"(?P<name>Starter|Agency|Pro)\s+"
+        r".*?"
+        r"(?P<regular>\$\d[\d,]*)\s+Save\s+(?P<save>\d+%)\s+"
+        r"(?P<price>\$\d[\d,]*)\s*/(?P<term>Year|Month)"
+        r"(?:\s+Renews at\s+(?P<renewal>\$\d[\d,]*)/yr)?",
+        re.IGNORECASE,
+    )
+    for match in plan_pattern.finditer(text):
+        plans.append(
+            {
+                "name": match.group("name"),
+                "sites": match.group("sites"),
+                "regular": match.group("regular"),
+                "save": match.group("save"),
+                "price": match.group("price"),
+                "term": match.group("term"),
+                "renewal": match.group("renewal") or "",
+            }
+        )
+
+    bundle = re.search(
+        r"Own It Forever\s+Mega Bundle\b.*?Pay\s+(?P<price>\$\d[\d,]*)\s*/(?P<term>Once)"
+        r"\s+(?P<regular>\$\d[\d,]*)\s+separately",
+        text,
+        re.IGNORECASE,
+    )
+    if bundle:
+        plans.append(
+            {
+                "name": "Mega Bundle",
+                "sites": "",
+                "regular": bundle.group("regular"),
+                "save": "",
+                "price": bundle.group("price"),
+                "term": bundle.group("term"),
+                "renewal": "",
+            }
+        )
+
+    return plans
+
+
+def _theme_list_reply(goal: str, page: dict[str, object]) -> str | None:
+    lower = goal.lower()
+    if not _is_theme_list_goal(goal):
+        return None
+
+    url = str(page.get("url") or "")
+    title = str(page.get("title") or "")
+    visible_text = _normalize(str(page.get("visible_text") or ""))
+    is_theme_page = "themes" in urlparse(url).path.lower() or "theme" in title.lower()
+    if not is_theme_page:
+        return None
+
+    themes = _theme_items_from_page(page, visible_text)
+    if not themes:
+        return None
+
+    lines = ["Current themes page theke theme list:"]
+    for item in themes[:12]:
+        price = f" - {item['price']}" if item.get("price") else ""
+        lines.append(f"- {item['name']}{price}")
+
+    return _dump(
+        reply="\n".join(lines),
+        reasoning_summary=[
+            _page_evidence(page),
+            f"Found {len(themes)} theme item(s) from the current themes page snapshot.",
+            "This answers after the requested Themes page is open, so no extra browser action is needed.",
+        ],
+        questions=[],
+        actions=[],
+        done=True,
+        needs_approval=False,
+    )
+
+
+def _theme_wait_plan(goal: str, page: dict[str, object], task_state: dict[str, object]) -> dict[str, object] | None:
+    if not _is_theme_list_goal(goal):
+        return None
+
+    url = str(page.get("url") or "")
+    title = str(page.get("title") or "")
+    visible_text = _normalize(str(page.get("visible_text") or ""))
+    is_theme_page = "themes" in urlparse(url).path.lower() or "theme" in title.lower()
+    if not is_theme_page:
+        return None
+
+    if _theme_items_from_page(page, visible_text):
+        return None
+
+    observations = task_state.get("observations") if isinstance(task_state.get("observations"), list) else []
+    recent_waits = sum(
+        1
+        for item in observations[-4:]
+        if isinstance(item, dict) and "waited" in str(item.get("message") or "").lower()
+    )
+    wait_ms = 1200 if recent_waits < 2 else 2000
+    return {
+        "type": "wait",
+        "target": "theme-list",
+        "value": wait_ms,
+        "reason": "Wait for the themes list/cards to finish loading before answering.",
+        "_reasoning": "The current page is the Themes page, but the snapshot does not yet expose theme list items.",
+    }
+
+
+def _is_theme_list_goal(goal: str) -> bool:
+    lower = goal.lower()
+    return "theme" in lower and bool(re.search(r"\b(list|show|dao|daw|dekhaw|dekhao)\b", lower))
+
+
+def _theme_items_from_page(page: dict[str, object], visible_text: str) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    clickables = page.get("clickables") if isinstance(page.get("clickables"), list) else []
+    for clickable in clickables:
+        if not isinstance(clickable, dict):
+            continue
+        href = str(clickable.get("href") or "").lower()
+        text = _normalize(str(clickable.get("text") or ""))
+        if "/themes/" not in href or not text:
+            continue
+        candidate = _theme_name_from_text(text)
+        if candidate and candidate.lower() not in seen:
+            seen.add(candidate.lower())
+            items.append({"name": candidate, "price": ""})
+
+    theme_pattern = re.compile(
+        r"\b(?P<name>OneListing(?:\s+Pro)?|d[A-Z][A-Za-z]+)\s+"
+        r"(?:(?:New|Trending)\s+)?"
+        r"(?:(?P<price>\$\d[\d,]*)\s+)?"
+        r"(?P<desc>[^$]{0,140}?Theme[^$]{0,100}?)(?=\s+Live Preview|\s+Details)",
+    )
+    for match in theme_pattern.finditer(visible_text):
+        name = _normalize(match.group("name"))
+        if not name or name.lower() in seen:
+            continue
+        desc = match.group("desc") or ""
+        price = match.group("price") or ("Free" if "free" in desc.lower() else "")
+        seen.add(name.lower())
+        items.append({"name": name, "price": price})
+
+    return items
+
+
+def _theme_name_from_text(text: str) -> str:
+    match = re.search(r"\b(OneListing(?:\s+Pro)?|d[A-Z][A-Za-z]+)\b", text)
+    return match.group(1) if match else ""
 
 
 def _completion_plan(goal: str, page: dict[str, object]) -> str | None:
@@ -407,6 +735,19 @@ def _click_plan(goal: str, page: dict[str, object]) -> dict[str, object] | None:
     if not target:
         return None
 
+    href = str(best.get("href") or "").strip()
+    if href and re.match(r"^https?://", href, re.IGNORECASE):
+        current_url = str(page.get("url") or "")
+        if _same_url_without_hash(href, current_url):
+            return None
+        return {
+            "type": "navigate",
+            "target": href,
+            "value": href,
+            "reason": f"Open visible page link: {label[:80]}.",
+            "_reasoning": f'The page snapshot has a matching link "{label[:80]}" with URL {href}.',
+        }
+
     return {
         "type": "click",
         "target": target,
@@ -414,6 +755,30 @@ def _click_plan(goal: str, page: dict[str, object]) -> dict[str, object] | None:
         "reason": f"Click visible page control: {label[:80]}.",
         "_reasoning": f'The page snapshot has a clickable target matching {best_score} goal word(s): "{label[:80]}".',
     }
+
+
+def _has_explicit_action_intent(goal: str) -> bool:
+    return bool(re.search(r"\b(click|open|press|tap|tab|jao|go|navigate)\b", goal.lower()))
+
+
+def _same_url_without_hash(left: str, right: str) -> bool:
+    try:
+        left_url = urlparse(left)
+        right_url = urlparse(right)
+    except ValueError:
+        return left == right
+
+    return (
+        left_url.scheme,
+        left_url.netloc,
+        left_url.path.rstrip("/"),
+        left_url.query,
+    ) == (
+        right_url.scheme,
+        right_url.netloc,
+        right_url.path.rstrip("/"),
+        right_url.query,
+    )
 
 
 def _first_youtube_video(page: dict[str, object]) -> dict[str, str] | None:

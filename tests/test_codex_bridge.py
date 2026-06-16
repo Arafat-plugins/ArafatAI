@@ -95,8 +95,8 @@ def test_bridge_server_handler_can_be_constructed(tmp_path):
     assert handler.server_version == "ArafatAIBridge/0.1"
 
 
-def test_bridge_server_default_timeout_supports_longer_tasks():
-    assert BridgeServerConfig().timeout_seconds == 300
+def test_bridge_server_default_timeout_keeps_sidebar_responsive():
+    assert BridgeServerConfig().timeout_seconds == 45
 
 
 def test_compact_page_limits_large_snapshots():

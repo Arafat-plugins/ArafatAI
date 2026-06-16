@@ -7,10 +7,11 @@ const els = {
 
 const BRIDGE_URL = 'http://127.0.0.1:8792';
 const BRIDGE_TOKEN = 'arafatai-local-token';
-const MAX_AGENT_STEPS = 5;
+const MAX_AGENT_STEPS = 8;
 const PLAN_POLL_INTERVAL_MS = 1500;
-const MAX_PLAN_POLLS = 240;
+const MAX_PLAN_POLLS = 40;
 const POST_ACTION_SETTLE_MS = 900;
+const NAVIGATION_SETTLE_TIMEOUT_MS = 7000;
 
 let history = [];
 let activeTaskId = null;
@@ -47,7 +48,7 @@ function addTrace(text, detail = '', state = '') {
   article.className = state ? `trace ${state}` : 'trace';
 
   const label = document.createElement('span');
-  label.textContent = 'Working';
+  label.textContent = state === 'thinking' ? 'Working' : 'Trace';
 
   const body = document.createElement('p');
   body.textContent = detail ? `${text}\n${detail}` : text;
@@ -56,6 +57,40 @@ function addTrace(text, detail = '', state = '') {
   els.thread.append(article);
   article.scrollIntoView({ block: 'end' });
   return article;
+}
+
+function setTraceState(article, state = '') {
+  if (!article) return;
+
+  article.classList.remove('thinking', 'done', 'error');
+  if (state) article.classList.add(state);
+
+  const label = article.querySelector('span');
+  if (label) {
+    label.textContent = state === 'thinking'
+      ? 'Working'
+      : state === 'done'
+        ? 'Done'
+        : state === 'error'
+          ? 'Stopped'
+          : 'Trace';
+  }
+}
+
+function setTraceText(article, text, detail = '') {
+  if (!article) return;
+
+  const body = article.querySelector('p');
+  if (body) {
+    body.textContent = detail ? `${text}\n${detail}` : text;
+  }
+  article.scrollIntoView({ block: 'end' });
+}
+
+function clearThinkingTraces(state = 'done') {
+  els.thread.querySelectorAll('.trace.thinking').forEach((trace) => {
+    setTraceState(trace, state);
+  });
 }
 
 function formatAction(action) {
@@ -195,12 +230,22 @@ function parseAgentReply(text) {
 
 function readableReply(agentReply, observations = []) {
   const lines = [];
+  const seenObservations = new Set();
+  const uniqueObservations = [];
+
+  for (const item of observations) {
+    const message = normalizeText(item?.message || '');
+    if (!message || seenObservations.has(message)) continue;
+    seenObservations.add(message);
+    uniqueObservations.push(item);
+  }
+
   if (agentReply.reply) lines.push(agentReply.reply);
   if (Array.isArray(agentReply.questions) && agentReply.questions.length) {
     lines.push('', 'Question:', ...agentReply.questions.map((item) => `- ${item}`));
   }
-  if (observations.length) {
-    lines.push('', ...observations.map((item) => item.message));
+  if (uniqueObservations.length) {
+    lines.push('', ...uniqueObservations.map((item) => item.message));
   }
   return lines.join('\n').trim();
 }
@@ -240,6 +285,46 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function sameUrlWithoutHash(a, b) {
+  try {
+    const left = new URL(a);
+    const right = new URL(b);
+    left.hash = '';
+    right.hash = '';
+    return left.toString() === right.toString();
+  } catch {
+    return String(a || '') === String(b || '');
+  }
+}
+
+async function waitForTabNavigation(tabId, { expectedUrl = '', previousUrl = '', timeoutMs = NAVIGATION_SETTLE_TIMEOUT_MS } = {}) {
+  if (!tabId) {
+    await sleep(POST_ACTION_SETTLE_MS);
+    return null;
+  }
+
+  const started = Date.now();
+  let latest = null;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      latest = await chrome.tabs.get(tabId);
+    } catch {
+      break;
+    }
+
+    const currentUrl = latest?.url || '';
+    const reachedExpected = expectedUrl && sameUrlWithoutHash(currentUrl, expectedUrl);
+    const changedUrl = previousUrl && currentUrl && !sameUrlWithoutHash(currentUrl, previousUrl);
+    const complete = latest?.status === 'complete';
+
+    if ((reachedExpected || changedUrl) && complete) return latest;
+    await sleep(250);
+  }
+
+  await sleep(POST_ACTION_SETTLE_MS);
+  return latest;
+}
+
 async function startTask(goal) {
   const data = await bridgePost('/tasks', { goal, history });
   return data.task;
@@ -260,25 +345,36 @@ async function planTask(taskId, page, taskState) {
   });
 
   let lastProgressSecond = 0;
+  let waitingTrace = null;
   for (let poll = 1; poll <= MAX_PLAN_POLLS; poll += 1) {
     setStatus(`Planning ${taskState.step}/${MAX_AGENT_STEPS}...`, true);
     await sleep(PLAN_POLL_INTERVAL_MS);
     const elapsedSeconds = Math.round((poll * PLAN_POLL_INTERVAL_MS) / 1000);
     if (elapsedSeconds >= lastProgressSecond + 15) {
       lastProgressSecond = elapsedSeconds;
-      addTrace(`Still waiting for planner response (${elapsedSeconds}s).`);
+      if (!waitingTrace) {
+        waitingTrace = addTrace(`Still waiting for planner response (${elapsedSeconds}s).`);
+      } else {
+        setTraceText(waitingTrace, `Still waiting for planner response (${elapsedSeconds}s).`);
+      }
     }
     const data = await bridgeGet(`/tasks/${taskId}`);
     const plan = latestPlanEvent(data.task, taskState.step);
     if (!plan) continue;
-    if (!plan.ok) throw new Error(plan.error || plan.text || 'Planning failed.');
-    planningTrace.classList?.remove('thinking');
+    if (waitingTrace) setTraceState(waitingTrace, plan.ok ? 'done' : 'error');
+    if (!plan.ok) {
+      setTraceState(planningTrace, 'error');
+      throw new Error(plan.error || plan.text || 'Planning failed.');
+    }
+    setTraceState(planningTrace, 'done');
     const agentReply = parseAgentReply(plan.text || '');
     renderReasoning(agentReply, plan.source || '');
     return { agentReply, plan };
   }
 
-  throw new Error(`Still planning after ${Math.round((MAX_PLAN_POLLS * PLAN_POLL_INTERVAL_MS) / 1000)}s. Task checkpoint is saved.`);
+  if (waitingTrace) setTraceState(waitingTrace, 'error');
+  setTraceState(planningTrace, 'error');
+  throw new Error(`Planner stayed busy after ${Math.round((MAX_PLAN_POLLS * PLAN_POLL_INTERVAL_MS) / 1000)}s. I stopped this attempt instead of waiting on the same route. Task checkpoint is saved.`);
 }
 
 async function recordTaskEvent(taskId, event) {
@@ -314,8 +410,9 @@ async function runTabAction(action, tab) {
   if (action.type === 'navigate') {
     const url = safeUrl(action.url || action.value || action.target);
     if (!url) return { ok: false, message: 'Blocked unsafe or invalid navigation URL.', action };
+    const previousUrl = tab.url || '';
     await chrome.tabs.update(tab.id, { url });
-    await sleep(POST_ACTION_SETTLE_MS);
+    await waitForTabNavigation(tab.id, { expectedUrl: url, previousUrl });
     return { ok: true, message: `Opened: ${url}`, action };
   }
 
@@ -325,8 +422,9 @@ async function runTabAction(action, tab) {
     const params = new URLSearchParams({ q: query });
     if (action.mode === 'images') params.set('tbm', 'isch');
     const url = `https://www.google.com/search?${params.toString()}`;
+    const previousUrl = tab.url || '';
     await chrome.tabs.update(tab.id, { url });
-    await sleep(POST_ACTION_SETTLE_MS);
+    await waitForTabNavigation(tab.id, { expectedUrl: url, previousUrl });
     return {
       ok: true,
       message: `Opened Google ${action.mode === 'images' ? 'image ' : ''}search for: ${query}`,
@@ -341,6 +439,7 @@ async function runPageAction(action, tab) {
   if (!['click', 'type', 'press'].includes(action.type)) return null;
 
   try {
+    const previousUrl = tab?.url || '';
     const response = await sendTabMessageWithInjection(tab, {
       type: 'ARAFATAI_RUN_ACTION',
       action,
@@ -357,7 +456,11 @@ async function runPageAction(action, tab) {
     if (!response?.ok) {
       return { ok: false, message: response?.error || `Page action failed for ${formatAction(action)}.`, action };
     }
-    await sleep(POST_ACTION_SETTLE_MS);
+    if (action.type === 'click' && response.result?.href) {
+      await waitForTabNavigation(tab.id, { expectedUrl: response.result.href, previousUrl });
+    } else {
+      await sleep(POST_ACTION_SETTLE_MS);
+    }
     return { ok: true, message: `${action.type} completed.`, action, result: response.result };
   } catch (error) {
     return { ok: false, message: error.message || String(error), action };
@@ -443,10 +546,11 @@ async function runAgentTask(goal) {
       const detail = action.normalized_from
         ? `${action.reason || ''}\nNormalized target from "${action.normalized_from}" to "${action.target}".`.trim()
         : action.reason || '';
-      addTrace(`Running ${formatAction(action)}.`, detail, 'thinking');
+      const actionTrace = addTrace(`Running ${formatAction(action)}.`, detail, 'thinking');
       const result = await runAgentAction(action);
+      setTraceState(actionTrace, result.ok ? 'done' : 'error');
       observations.push(result);
-      addTrace(result.ok ? 'Action completed.' : 'Action blocked/failed.', result.message);
+      addTrace(result.ok ? 'Action completed.' : 'Action blocked/failed.', result.message, result.ok ? 'done' : 'error');
       await recordTaskEvent(activeTaskId, {
         kind: 'observation',
         status: result.ok ? 'running' : 'blocked',
@@ -470,7 +574,7 @@ async function runAgentTask(goal) {
     finalReply || 'I started the task but did not finish within the step limit.',
     '',
     `Stopped after ${MAX_AGENT_STEPS} steps. Tell me to continue if needed.`,
-    ...observations.slice(-3).map((item) => item.message),
+    ...Array.from(new Set(observations.slice(-3).map((item) => item.message))),
   ].filter(Boolean).join('\n');
 }
 
@@ -481,16 +585,19 @@ async function sendMessage() {
   addMessage('user', goal);
   els.message.value = '';
   els.send.disabled = true;
-    setStatus('Working...', true);
+  setStatus('Working...', true);
 
   try {
     const reply = await runAgentTask(goal);
+    clearThinkingTraces();
     addMessage('assistant', reply || '(empty response)');
     setStatus('Ready');
   } catch (error) {
+    clearThinkingTraces('error');
     addMessage('assistant', error.message || String(error));
     setStatus('Needs bridge');
   } finally {
+    clearThinkingTraces();
     els.send.disabled = false;
     els.message.focus();
   }

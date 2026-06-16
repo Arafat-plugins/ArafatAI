@@ -187,6 +187,7 @@ function runAction(action) {
       target: action.target,
       clicked_text: elementText(el).slice(0, 160),
       selector: simpleSelector(el),
+      href: el.href || '',
       box: box(el),
     };
   }
@@ -243,7 +244,7 @@ function accessibilityTree() {
 
 function snapshotPage() {
   const clickables = clickableElements()
-    .slice(0, 120)
+    .slice(0, 160)
     .map((el) => ({
       tag: el.tagName.toLowerCase(),
       selector: simpleSelector(el),
@@ -289,7 +290,7 @@ function snapshotPage() {
     title: document.title,
     viewport: { width: window.innerWidth, height: window.innerHeight },
     accessibility_tree: accessibilityTree().slice(0, 12000),
-    visible_text: normalizeText(document.body ? document.body.innerText : '').slice(0, 1800),
+    visible_text: normalizeText(document.body ? document.body.innerText : '').slice(0, 5000),
     clickables,
     forms,
     dialogs,

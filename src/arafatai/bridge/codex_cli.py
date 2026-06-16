@@ -26,7 +26,7 @@ DEFAULT_TOKEN = "arafatai-local-token"
 class CodexCLIConfig:
     codex_path: str | None = None
     cwd: Path = Path.cwd()
-    timeout_seconds: int = 300
+    timeout_seconds: int = 45
     sandbox: str = "read-only"
 
 
