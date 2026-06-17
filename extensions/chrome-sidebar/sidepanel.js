@@ -16,6 +16,7 @@ const MAX_PLAN_POLLS = 40;
 const MAX_CODE_PLAN_POLLS = 80;
 const POST_ACTION_SETTLE_MS = 900;
 const NAVIGATION_SETTLE_TIMEOUT_MS = 7000;
+const MANUAL_VERIFICATION_TIMEOUT_MS = 180000;
 const MAX_ATTACHMENTS = 6;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MEMORY_STORAGE_KEY = 'aql_ai_sidebar_memory_v1';
@@ -748,6 +749,35 @@ async function activeTab() {
   return tabs[0] || null;
 }
 
+async function taskTab(tab = null) {
+  if (tab?.id) {
+    try {
+      return await chrome.tabs.get(tab.id);
+    } catch {
+      return null;
+    }
+  }
+  return activeTab();
+}
+
+async function focusTaskTab(tab = null) {
+  const current = await taskTab(tab);
+  if (!current?.id) return current;
+
+  try {
+    if (current.windowId) await chrome.windows.update(current.windowId, { focused: true });
+  } catch {
+    // Window focus is best effort; tab activation is enough for extension APIs.
+  }
+
+  try {
+    await chrome.tabs.update(current.id, { active: true });
+    return await chrome.tabs.get(current.id);
+  } catch {
+    return current;
+  }
+}
+
 function isMissingContentScriptError(error) {
   const message = error?.message || String(error || '');
   return message.includes('Receiving end does not exist') || message.includes('Could not establish connection');
@@ -771,6 +801,21 @@ function fallbackTabSnapshot(tab) {
   };
 }
 
+function isManualVerificationPage(page = {}) {
+  const url = String(page.url || '').toLowerCase();
+  const title = normalizeText(page.title || '').toLowerCase();
+  const text = normalizeText(page.visible_text || '').toLowerCase();
+  const haystack = `${url} ${title} ${text}`;
+
+  return url.includes('google.com/sorry/')
+    || url.includes('/sorry/index')
+    || haystack.includes('unusual traffic')
+    || haystack.includes("i'm not a robot")
+    || haystack.includes('i am not a robot')
+    || haystack.includes('recaptcha')
+    || haystack.includes('not a robot');
+}
+
 async function sendTabMessageWithInjection(tab, message) {
   if (!tab?.id || !isScriptableTab(tab)) {
     throw new Error('Current tab cannot be controlled with page DOM actions.');
@@ -789,24 +834,26 @@ async function sendTabMessageWithInjection(tab, message) {
   }
 }
 
-async function optionalPageSnapshot() {
-  const tab = await activeTab();
-  if (!tab?.id || !isScriptableTab(tab)) return fallbackTabSnapshot(tab);
+async function optionalPageSnapshot(tab = null) {
+  const current = await focusTaskTab(tab);
+  const tabForSnapshot = current || await activeTab();
+  if (!tabForSnapshot?.id || !isScriptableTab(tabForSnapshot)) return fallbackTabSnapshot(tabForSnapshot);
 
   try {
-    const response = await sendTabMessageWithInjection(tab, { type: 'ARAFATAI_SNAPSHOT' });
-    return response?.ok ? response.snapshot : fallbackTabSnapshot(tab);
+    const response = await sendTabMessageWithInjection(tabForSnapshot, { type: 'ARAFATAI_SNAPSHOT' });
+    return response?.ok ? response.snapshot : fallbackTabSnapshot(tabForSnapshot);
   } catch {
-    return fallbackTabSnapshot(tab);
+    return fallbackTabSnapshot(tabForSnapshot);
   }
 }
 
-async function captureCurrentScreenshot(step) {
-  const tab = await activeTab();
-  if (!tab?.windowId || !isScriptableTab(tab)) return null;
+async function captureCurrentScreenshot(step, tab = null) {
+  const current = await focusTaskTab(tab);
+  const tabForScreenshot = current || await activeTab();
+  if (!tabForScreenshot?.windowId || !isScriptableTab(tabForScreenshot)) return null;
 
   try {
-    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+    const dataUrl = await chrome.tabs.captureVisibleTab(tabForScreenshot.windowId, {
       format: 'jpeg',
       quality: 72,
     });
@@ -1037,15 +1084,30 @@ function readableReply(agentReply, observations = []) {
   return lines.join('\n').trim();
 }
 
-async function bridgePost(path, body) {
-  const response = await fetch(`${BRIDGE_URL}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-arafatai-token': BRIDGE_TOKEN,
-    },
-    body: JSON.stringify(body),
-  });
+async function bridgePost(path, body, options = {}) {
+  const timeoutMs = Number(options.timeoutMs || 0);
+  const controller = timeoutMs > 0 ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+  let response;
+  try {
+    response = await fetch(`${BRIDGE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-arafatai-token': BRIDGE_TOKEN,
+      },
+      body: JSON.stringify(body),
+      signal: controller?.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Bridge request timed out after ${Math.round(timeoutMs / 1000)}s.`);
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   const data = await response.json();
   if (!response.ok || !data.ok) {
@@ -1066,6 +1128,24 @@ async function bridgeGet(path) {
     throw new Error(data.error || data.text || 'Bridge request failed.');
   }
   return data;
+}
+
+async function bridgeReasonFast(body) {
+  return bridgePost('/reason', body, { timeoutMs: 10000 });
+}
+
+function statusForError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  if (
+    message.includes('failed to fetch') ||
+    message.includes('invalid_token') ||
+    message.includes('bridge request failed') ||
+    message.includes('connection') ||
+    message.includes('network')
+  ) {
+    return 'Needs bridge';
+  }
+  return 'Stopped';
 }
 
 function sleep(ms) {
@@ -1128,7 +1208,7 @@ function latestPlanEvent(task, step) {
   return matches[matches.length - 1] || null;
 }
 
-async function planTask(taskId, page, taskState, attachments = [], maxPolls = MAX_PLAN_POLLS) {
+async function planTask(taskId, goal, page, taskState, attachments = [], maxPolls = MAX_PLAN_POLLS) {
   const planningTrace = addTrace(`Planner requested for step ${taskState.step}/${MAX_AGENT_STEPS}.`, '', 'thinking');
   await bridgePost(`/tasks/${taskId}/plan-async`, {
     page,
@@ -1165,9 +1245,29 @@ async function planTask(taskId, page, taskState, attachments = [], maxPolls = MA
     return { agentReply, plan };
   }
 
-  if (waitingTrace) setTraceState(waitingTrace, 'error');
-  setTraceState(planningTrace, 'error');
-  throw new Error(`Planner stayed busy after ${Math.round((maxPolls * PLAN_POLL_INTERVAL_MS) / 1000)}s. I stopped this attempt instead of waiting on the same route. Task checkpoint is saved.`);
+  const timeoutMessage = `Planner stayed busy after ${Math.round((maxPolls * PLAN_POLL_INTERVAL_MS) / 1000)}s. I stopped this attempt instead of waiting on the same route. Task checkpoint is saved.`;
+
+  try {
+    const fallback = await bridgeReasonFast({
+      mode: 'agent_task',
+      goal,
+      page,
+      attachments: attachmentPayload(attachments),
+      conversation_memory: conversationMemoryPayload(),
+      task_state: taskState,
+      approval_policy: 'auto-safe-actions',
+    });
+    const agentReply = parseAgentReply(fallback.text || '');
+    if (waitingTrace) setTraceState(waitingTrace, 'done');
+    setTraceState(planningTrace, 'done');
+    addTrace('Async planner timed out, fast local fallback returned a plan.');
+    renderReasoning(agentReply, fallback.source || '');
+    return { agentReply, plan: fallback };
+  } catch {
+    if (waitingTrace) setTraceState(waitingTrace, 'error');
+    setTraceState(planningTrace, 'error');
+    throw new Error(timeoutMessage);
+  }
 }
 
 async function recordTaskEvent(taskId, event) {
@@ -1186,15 +1286,103 @@ function safeUrl(rawUrl) {
   }
 }
 
-function isRiskyAction(action) {
-  const text = [
-    action.type,
-    action.target,
-    action.value,
-    action.url,
-    action.reason,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return /\b(delete|remove|publish|payment|pay|checkout|purchase|merge|deploy|reset|irreversible|destroy)\b/.test(text);
+function hasExplicitRiskApproval(goal) {
+  const text = normalizeText(goal).toLowerCase();
+  const confirms = /\b(yes|yeah|yep|confirm|confirmed|proceed|go ahead|allow|approve|approved|ok|okay|sure|ji|jee|ha|haan|hmm|korbo|koro|kore dao|kore fel|cholbe|local site)\b/.test(text);
+  const risk = /\b(reset|delete|remove|destroy|wipe|erase|clear|drop|truncate|publish|deploy)\b/.test(text);
+  return confirms && risk;
+}
+
+function approvalContextForGoal(goal) {
+  return [
+    goal,
+    conversationMemory.summary || '',
+    conversationMemory.last_task?.goal || '',
+    conversationMemory.last_task?.reply || '',
+  ].filter(Boolean).join('\n');
+}
+
+function isFinalRiskyAction(action) {
+  const type = String(action?.type || '').toLowerCase();
+  if (['navigate', 'search', 'wait', 'observe'].includes(type)) return false;
+
+  const targetText = normalizeText([
+    action?.type,
+    action?.target,
+    action?.value,
+    action?.url,
+  ].filter(Boolean).join(' ')).toLowerCase();
+
+  if (!targetText) return false;
+  if (type === 'click' && /\b(activate|install now|plugin-install|plugins\.php|data-slug=["']?wp-reset|wp-reset.+activate)\b/.test(targetText)) {
+    return false;
+  }
+  if (/\b(payment|pay|checkout|purchase|bank|card|withdraw|transfer)\b/.test(targetText)) return true;
+  if (/\b(delete|destroy|wipe|erase|drop|truncate|irreversible)\b/.test(targetText)) return true;
+  if (/\b(reset site|site reset|wp reset|database reset|reset database|factory reset)\b/.test(targetText)) return true;
+  if (type === 'click' && /\b(reset|remove|publish|deploy)\b/.test(targetText)) return true;
+  if (type === 'type' && /\b(reset|delete|destroy|wipe|erase)\b/.test(targetText)) return true;
+
+  return false;
+}
+
+function shouldAutoAcceptPageDialog(action) {
+  return Boolean(
+    action?.accept_dialog ||
+    action?.auto_accept_dialog ||
+    String(action?.dialog || '').toLowerCase() === 'accept'
+  );
+}
+
+async function installOneShotPageDialogAccept(tabId) {
+  if (!tabId) return false;
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: (timeoutMs) => {
+      const key = '__FLUID_ONE_SHOT_DIALOG_ACCEPT__';
+      if (window[key]?.restore) window[key].restore();
+
+      const original = {
+        alert: window.alert,
+        confirm: window.confirm,
+        prompt: window.prompt,
+      };
+
+      let used = false;
+      const restore = () => {
+        if (window[key]?.original !== original) return;
+        window.alert = original.alert;
+        window.confirm = original.confirm;
+        window.prompt = original.prompt;
+        delete window[key];
+      };
+      const timer = window.setTimeout(restore, timeoutMs);
+      const consume = (value) => {
+        if (!used) {
+          used = true;
+          window.clearTimeout(timer);
+          window.setTimeout(restore, 0);
+        }
+        return value;
+      };
+
+      window[key] = { original, restore };
+      window.alert = function fluidAlert() {
+        return consume(undefined);
+      };
+      window.confirm = function fluidConfirm() {
+        return consume(true);
+      };
+      window.prompt = function fluidPrompt(_message, defaultValue) {
+        return consume(defaultValue || 'reset');
+      };
+    },
+    args: [12000],
+  });
+
+  return true;
 }
 
 async function runTabAction(action, tab) {
@@ -1234,6 +1422,9 @@ async function runPageAction(action, tab) {
 
   try {
     const previousUrl = tab?.url || '';
+    if (action.type === 'click' && shouldAutoAcceptPageDialog(action)) {
+      await installOneShotPageDialogAccept(tab.id);
+    }
     const response = await sendTabMessageWithInjection(tab, {
       type: 'ARAFATAI_RUN_ACTION',
       action,
@@ -1261,21 +1452,61 @@ async function runPageAction(action, tab) {
   }
 }
 
-async function runAgentAction(action) {
-  if (isRiskyAction(action)) {
+async function runManualVerificationAction(action, tab) {
+  if (action.type !== 'wait_for_manual_verification') return null;
+
+  const timeoutMs = Math.min(
+    Math.max(Number(action.value || action.ms || MANUAL_VERIFICATION_TIMEOUT_MS), 15000),
+    MANUAL_VERIFICATION_TIMEOUT_MS,
+  );
+  const started = Date.now();
+  const instruction = addTrace(
+    'Manual verification needed.',
+    'Please complete the CAPTCHA/checkbox in the page. I will continue automatically after the verification page changes.',
+    'thinking',
+  );
+
+  while (Date.now() - started < timeoutMs) {
+    setStatus('Waiting for manual verification...', true);
+    const page = await optionalPageSnapshot(tab);
+    if (!isManualVerificationPage(page)) {
+      setTraceState(instruction, 'done');
+      return {
+        ok: true,
+        message: `Manual verification completed. Current page: ${page.title || page.url || 'current tab'}.`,
+        action,
+        snapshot: page,
+      };
+    }
+    await sleep(1500);
+  }
+
+  setTraceState(instruction, 'error');
+  return {
+    ok: false,
+    message: 'Manual verification was not completed before the wait timeout.',
+    action,
+  };
+}
+
+async function runAgentAction(action, goal = '', preferredTab = null) {
+  if (isFinalRiskyAction(action) && !hasExplicitRiskApproval(goal)) {
     return {
       ok: false,
-      message: `Stopped before risky action. Please confirm manually if you want: ${action.reason || action.type}`,
+      message: `Stopped before final destructive action. Confirm once if you want: ${action.reason || action.type}`,
       action,
     };
   }
 
-  const tab = await activeTab();
+  const tab = await focusTaskTab(preferredTab);
   const tabResult = await runTabAction(action, tab);
   if (tabResult) return tabResult;
 
   const pageResult = await runPageAction(action, tab);
   if (pageResult) return pageResult;
+
+  const manualResult = await runManualVerificationAction(action, tab);
+  if (manualResult) return manualResult;
 
   if (action.type === 'wait') {
     const ms = Math.min(Math.max(Number(action.value || action.ms || 1000), 0), 10000);
@@ -1284,7 +1515,7 @@ async function runAgentAction(action) {
   }
 
   if (action.type === 'observe') {
-    return { ok: true, message: 'Observed current page.', action, snapshot: await optionalPageSnapshot() };
+    return { ok: true, message: 'Observed current page.', action, snapshot: await optionalPageSnapshot(tab) };
   }
 
   return { ok: false, message: `Unsupported action type: ${action.type}`, action };
@@ -1293,10 +1524,12 @@ async function runAgentAction(action) {
 async function runAgentTask(goal, attachments = []) {
   const task = await startTask(goal, attachments);
   activeTaskId = task.id;
+  const initialTab = await activeTab();
   const observations = [];
   let finalReply = '';
   const screenshotPolicy = screenshotPolicyForGoal(goal);
   const planPollLimit = plannerPollLimitForGoal(goal);
+  const approvalContext = approvalContextForGoal(goal);
 
   startTraceGroup();
   addTrace(`Task checkpoint created: ${activeTaskId.slice(0, 8)}.`);
@@ -1304,8 +1537,8 @@ async function runAgentTask(goal, attachments = []) {
   for (let step = 1; step <= MAX_AGENT_STEPS; step += 1) {
     setStatus(`Working ${step}/${MAX_AGENT_STEPS}...`, true);
     addTrace(`Reading current tab snapshot for step ${step}.`);
-    const page = await optionalPageSnapshot();
-    const screenshot = screenshotPolicy.capture ? await captureCurrentScreenshot(step) : null;
+    const page = await optionalPageSnapshot(initialTab);
+    const screenshot = screenshotPolicy.capture ? await captureCurrentScreenshot(step, initialTab) : null;
     addTrace(`Observed page: ${page.title || page.url || 'current tab'}.`, page.url || '');
     rememberObservedPage(page);
     if (screenshot && screenshotPolicy.show) addSnapshotCard(page, screenshot, step);
@@ -1321,7 +1554,7 @@ async function runAgentTask(goal, attachments = []) {
       ],
     });
 
-    const { agentReply } = await planTask(activeTaskId, page, {
+    const { agentReply } = await planTask(activeTaskId, goal, page, {
       step,
       max_steps: MAX_AGENT_STEPS,
       observations: observations.slice(-8),
@@ -1351,7 +1584,7 @@ async function runAgentTask(goal, attachments = []) {
         ? `${action.reason || ''}\nNormalized target from "${action.normalized_from}" to "${action.target}".`.trim()
         : action.reason || '';
       const actionTrace = addTrace(`Running ${formatAction(action)}.`, detail, 'thinking');
-      const result = await runAgentAction(action);
+      const result = await runAgentAction(action, approvalContext, initialTab);
       setTraceState(actionTrace, result.ok ? 'done' : 'error');
       observations.push(result);
       addTrace(result.ok ? 'Action completed.' : 'Action blocked/failed.', result.message, result.ok ? 'done' : 'error');
@@ -1363,7 +1596,16 @@ async function runAgentTask(goal, attachments = []) {
         result,
         message: result.message,
       });
-      if (!result.ok) break;
+      if (!result.ok) {
+        await recordTaskEvent(activeTaskId, {
+          kind: 'observation',
+          status: 'blocked',
+          step,
+          message: 'Task stopped after a failed action instead of retrying the same route.',
+          reply: agentReply.reply,
+        });
+        return readableReply(agentReply, observations.slice(-3));
+      }
     }
   }
 
@@ -1406,7 +1648,7 @@ async function sendMessage() {
     const message = error.message || String(error);
     addMessage('assistant', message);
     rememberTaskResult(goal, message, 'error');
-    setStatus('Needs bridge');
+    setStatus(statusForError(error));
   } finally {
     clearThinkingTraces();
     els.send.disabled = false;

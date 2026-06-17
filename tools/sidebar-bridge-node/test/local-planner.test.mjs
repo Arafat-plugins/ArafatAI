@@ -96,6 +96,50 @@ test('researches YouTube when current watch page does not match song request', (
   assert.match(data.actions[0].target, /nora\+fateh\+songs/);
 });
 
+test('does not let old WP Reset memory hijack a new YouTube task', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'programming gio er ekta video play koro youtube theke',
+    page: {
+      url: 'https://cbo-bizhub.com/wp-admin/plugins.php',
+      title: 'Plugins - WordPress',
+      visible_text: 'Plugins WP Reset Deactivate',
+      clickables: [],
+    },
+    conversation_memory: {
+      summary: 'Previous task: WP Reset plugin active kore site reset korte hobe.',
+      last_task: {
+        goal: 'current page a plugin e dhuke wp reset plugin active koro then reset site',
+        reply: 'WP Reset confirm field e "reset" type korchi.',
+      },
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.actions[0].type, 'navigate');
+  assert.match(data.actions[0].target, /^https:\/\/www\.youtube\.com\/results\?/);
+  assert.match(data.actions[0].target, /programming\+gio/);
+});
+
+test('waits for manual verification on Google reCAPTCHA page', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'programming gio er ekta video play koro youtube theke',
+    page: {
+      url: 'https://www.google.com/sorry/index?continue=https://www.youtube.com/watch%3Fv%3D5Cgio2OfOYk',
+      title: 'Google Sorry',
+      visible_text: "I'm not a robot reCAPTCHA Our systems have detected unusual traffic from your computer network.",
+      clickables: [{ ref: 'ref_1', text: "I'm not a robot", selector: '#recaptcha-anchor' }],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.actions.length, 1);
+  assert.equal(data.actions[0].type, 'wait_for_manual_verification');
+  assert.equal(data.actions[0].target, 'google-captcha');
+  assert.equal(data.needs_approval, true);
+  assert.match(data.reply, /automatically same task continue/i);
+  assert.match(data.reasoning_summary.join(' '), /human verification/i);
+});
+
 test('clicks visible YouTube skip ad button', () => {
   const data = parseReply({
     mode: 'agent_task',
@@ -176,4 +220,213 @@ test('unknown goals can defer when requested', () => {
   }, { allowQuestionFallback: false });
 
   assert.equal(reply, null);
+});
+
+test('does not repeat generic risky approval question after explicit local reset confirmation', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ji eita local site eita reset korbo',
+    page: {
+      url: 'https://local.test/wp-admin/',
+      title: 'Dashboard - WordPress',
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.questions.length, 0);
+  assert.equal(data.actions[0].type, 'navigate');
+  assert.equal(data.actions[0].target, 'https://local.test/wp-admin/plugins.php?s=wp+reset&plugin_status=all');
+});
+
+test('activates installed WP Reset plugin from plugins page', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ji eita local site eita reset korbo',
+    page: {
+      url: 'https://local.test/wp-admin/plugins.php?s=wp+reset&plugin_status=all',
+      title: 'Plugins - WordPress',
+      visible_text: 'WP Reset Inactive Activate',
+      clickables: [
+        {
+          ref: 'ref_10',
+          text: 'Activate',
+          href: 'https://local.test/wp-admin/plugins.php?action=activate&plugin=wp-reset%2Fwp-reset.php&_wpnonce=abc',
+        },
+      ],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.questions.length, 0);
+  assert.equal(data.actions[0].type, 'navigate');
+  assert.match(data.actions[0].target, /action=activate/);
+  assert.match(data.actions[0].target, /wp-reset/);
+});
+
+test('opens WP Reset tool page after plugin is active', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ji eita local site eita reset korbo',
+    page: {
+      url: 'https://local.test/wp-admin/plugins.php?s=wp+reset&plugin_status=all',
+      title: 'Plugins - WordPress',
+      visible_text: 'WP Reset Active Deactivate',
+      clickables: [],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.actions[0].type, 'navigate');
+  assert.equal(data.actions[0].target, 'https://local.test/wp-admin/tools.php?page=wp-reset');
+});
+
+test('continues WP Reset from memory for a short approval reply', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ji',
+    page: {
+      url: 'https://local.test/wp-admin/tools.php?page=wp-reset',
+      title: 'WP Reset - WordPress',
+      visible_text: 'WP Reset Reset Site Type reset to confirm',
+      forms: [
+        {
+          selector: '#wp-reset-form',
+          fields: [
+            {
+              ref: 'ref_20',
+              selector: '#wp-reset-confirm',
+              name: 'wp-reset-confirm',
+              type: 'text',
+              placeholder: 'Type reset',
+              value_length: 0,
+            },
+          ],
+        },
+      ],
+      clickables: [{ ref: 'ref_21', text: 'Reset Site' }],
+    },
+    conversation_memory: {
+      last_task: {
+        goal: 'wp reset final page e achi, site reset korte hobe',
+        reply: 'Confirm korben je ei site reset korte hobe?',
+      },
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.actions[0].type, 'type');
+  assert.equal(data.actions[0].target, 'ref_20');
+});
+
+test('types WP Reset confirmation keyword after approval', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ji eita local site eita reset korbo',
+    page: {
+      url: 'https://local.test/wp-admin/tools.php?page=wp-reset',
+      title: 'WP Reset - WordPress',
+      visible_text: 'WP Reset Reset Site Type reset to confirm',
+      forms: [
+        {
+          selector: '#wp-reset-form',
+          fields: [
+            {
+              ref: 'ref_20',
+              selector: '#wp-reset-confirm',
+              name: 'wp-reset-confirm',
+              type: 'text',
+              placeholder: 'Type reset',
+              value_length: 0,
+            },
+          ],
+        },
+      ],
+      clickables: [{ ref: 'ref_21', text: 'Reset Site' }],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.actions[0].type, 'type');
+  assert.equal(data.actions[0].target, 'ref_20');
+  assert.equal(data.actions[0].value, 'reset');
+});
+
+test('clicks final WP Reset button after confirmation field is filled', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ji eita local site eita reset korbo',
+    page: {
+      url: 'https://local.test/wp-admin/tools.php?page=wp-reset',
+      title: 'WP Reset - WordPress',
+      visible_text: 'WP Reset Reset Site Type reset to confirm',
+      forms: [
+        {
+          selector: '#wp-reset-form',
+          fields: [
+            {
+              ref: 'ref_20',
+              selector: '#wp-reset-confirm',
+              name: 'wp-reset-confirm',
+              type: 'text',
+              placeholder: 'Type reset',
+              value_length: 5,
+            },
+          ],
+        },
+      ],
+      clickables: [{ ref: 'ref_21', text: 'Reset Site' }],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.actions[0].type, 'click');
+  assert.equal(data.actions[0].target, 'ref_21');
+  assert.equal(data.actions[0].accept_dialog, true);
+});
+
+test('clicks WP Reset browser confirmation button when a modal is visible', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ji eita local site eita reset korbo',
+    page: {
+      url: 'https://local.test/wp-admin/tools.php?page=wp-reset',
+      title: 'WP Reset - WordPress',
+      visible_text: 'WP Reset Are you sure you want to reset this site?',
+      forms: [
+        {
+          selector: '#wp-reset-form',
+          fields: [
+            {
+              ref: 'ref_20',
+              selector: '#wp-reset-confirm',
+              name: 'wp-reset-confirm',
+              type: 'text',
+              placeholder: 'Type reset',
+              value_length: 5,
+            },
+          ],
+        },
+      ],
+      clickables: [
+        { ref: 'ref_cancel', text: 'Cancel' },
+        { ref: 'ref_ok', text: 'OK' },
+      ],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.actions[0].type, 'click');
+  assert.equal(data.actions[0].target, 'ref_ok');
+  assert.equal(data.actions[0].accept_dialog, true);
+});
+
+test('asks once before final WP Reset page when approval is missing', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'wp reset final page e achi, ki kora lagbe bolo',
+    page: {
+      url: 'https://local.test/wp-admin/tools.php?page=wp-reset',
+      title: 'WP Reset - WordPress',
+      visible_text: 'WP Reset Reset Site Type reset to confirm',
+      forms: [],
+      clickables: [{ ref: 'ref_21', text: 'Reset Site' }],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.actions.length, 0);
+  assert.equal(data.needs_approval, true);
+  assert.match(data.questions[0], /Confirm/);
 });

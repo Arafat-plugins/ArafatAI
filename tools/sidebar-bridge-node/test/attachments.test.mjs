@@ -94,3 +94,24 @@ test('Codex prompt requires valid JSON and one code block for code answers', () 
   assert.match(prompt, /exactly one fenced code block/);
   assert.match(prompt, /Do not split JS and CSS into separate code blocks/);
 });
+
+test('Codex prompt avoids repeated questions after developer confirmation', () => {
+  const prompt = buildExtensionPrompt({
+    mode: 'agent_task',
+    goal: 'ji eita local site eita reset korbo',
+    history: [
+      { role: 'assistant', text: 'Confirm korben je site reset korte hobe?' },
+      { role: 'user', text: 'ji eita local site eita reset korbo' },
+    ],
+    conversation_memory: {
+      summary: 'FLUID asked whether WP Reset should reset the local site. User confirmed the local reset.',
+    },
+  });
+
+  assert.match(prompt, /developer working on their own sites/);
+  assert.match(prompt, /proceed with the next safe step instead of repeatedly asking/);
+  assert.match(prompt, /Do not block safe preparatory steps/);
+  assert.match(prompt, /Only the final irreversible click/);
+  assert.match(prompt, /For WordPress WP Reset tasks/);
+  assert.match(prompt, /type the required keyword/);
+});

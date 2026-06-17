@@ -2,6 +2,7 @@ import { URL, URLSearchParams } from 'node:url';
 
 const SAFE_MODES = new Set(['browser_plan', 'agent_chat', 'agent_plan', 'agent_task']);
 const RISKY_RE = /\b(delete|remove|publish|payment|pay|checkout|purchase|merge|deploy|reset|destroy|password|otp|2fa|bank|card|withdraw|transfer|submit|post)\b/i;
+const RISK_APPROVAL_RE = /\b(yes|yeah|yep|confirm|confirmed|proceed|go ahead|allow|approve|approved|ok|okay|sure|ji|jee|ha|haan|hmm|korbo|koro|kore dao|kore fel|cholbe|local site)\b/i;
 const GREET_RE = /^\s*(hi|hello|hey|salam|assalamu|assalamu alaikum)\s*[!.]*\s*$/i;
 const DOMAIN_RE = /\b([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?:\/[^\s]*)?/i;
 const STOP_WORDS = new Set([
@@ -43,7 +44,22 @@ export function buildLocalAgentReply(body = {}, { allowQuestionFallback = true }
     });
   }
 
-  if (RISKY_RE.test(goal)) {
+  const captcha = captchaBlockReply(page);
+  if (captcha) return captcha;
+
+  const wpReset = wpResetPlan(goal, page, body.conversation_memory);
+  if (wpReset) {
+    return dump({
+      reply: wpReset.reply,
+      reasoning_summary: [pageEvidence(page), wpReset.reasoning],
+      questions: wpReset.questions || [],
+      actions: wpReset.action ? [wpReset.action] : [],
+      done: Boolean(wpReset.done),
+      needs_approval: Boolean(wpReset.needs_approval),
+    });
+  }
+
+  if (RISKY_RE.test(goal) && !RISK_APPROVAL_RE.test(goal)) {
     return dump({
       reply: 'This may affect an account, content, payment, or settings. I need your exact approval before acting.',
       reasoning_summary: ['The request contains a risky action keyword, so local automation is blocked.'],
@@ -178,6 +194,44 @@ export function reason(body = {}) {
 
   const fallback = buildLocalAgentReply(body, { allowQuestionFallback: true });
   return { ok: true, text: fallback, source: 'node-local-planner-fallback', error: null };
+}
+
+function captchaBlockReply(page) {
+  if (!isCaptchaPage(page)) return null;
+
+  return dump({
+    reply: 'Google CAPTCHA/manual verification page e eshe gechi. Eta ami automate kore click korbo na. Apni "I am not a robot" checkbox click/complete korun; complete hole ami automatically same task continue korbo.',
+    reasoning_summary: [
+      pageEvidence(page),
+      'The page is a Google/reCAPTCHA human verification challenge, so automation pauses and waits for the user to complete it manually.',
+    ],
+    questions: [],
+    actions: [
+      {
+        type: 'wait_for_manual_verification',
+        target: 'google-captcha',
+        value: 180000,
+        reason: 'Ask the user to complete the CAPTCHA manually, then continue when the page leaves the verification challenge.',
+      },
+    ],
+    done: false,
+    needs_approval: true,
+  });
+}
+
+function isCaptchaPage(page = {}) {
+  const url = String(page.url || '').toLowerCase();
+  const title = normalize(String(page.title || '')).toLowerCase();
+  const text = normalize(String(page.visible_text || '')).toLowerCase();
+  const haystack = `${url} ${title} ${text}`;
+
+  return url.includes('google.com/sorry/')
+    || url.includes('/sorry/index')
+    || haystack.includes('unusual traffic')
+    || haystack.includes("i'm not a robot")
+    || haystack.includes('i am not a robot')
+    || haystack.includes('recaptcha')
+    || haystack.includes('not a robot');
 }
 
 function readOnlyReply(goal, page) {
@@ -698,6 +752,150 @@ function navigationPlan(goal) {
   };
 }
 
+function wpResetPlan(goal, page, conversationMemory = {}) {
+  const goalText = normalize(goal);
+  const memoryText = normalize([
+    isPlainObject(conversationMemory) ? conversationMemory.summary : '',
+    isPlainObject(conversationMemory?.last_task) ? conversationMemory.last_task.goal : '',
+    isPlainObject(conversationMemory?.last_task) ? conversationMemory.last_task.reply : '',
+  ].filter(Boolean).join(' '));
+  const directResetGoal = isWpResetGoal(goalText);
+  const memoryResetContinuation = isContinuationApproval(goalText) && isWpResetGoal(memoryText);
+
+  if (!directResetGoal && !memoryResetContinuation) return null;
+  const contextText = normalize([goalText, memoryResetContinuation ? memoryText : ''].filter(Boolean).join(' '));
+
+  const admin = wpAdminContext(page);
+  if (!admin.base) {
+    return {
+      reply: 'WordPress admin URL pachhi na. Current site/admin tab open korle ami WP Reset flow chalate parbo.',
+      reasoning: 'The task is a WP Reset flow, but the current page URL is not usable for a WordPress admin route.',
+      questions: ['WordPress admin tab open kore dao, then bollei ami continue korbo.'],
+      needs_approval: true,
+    };
+  }
+
+  const approved = hasRiskApproval(contextText);
+  const path = admin.url.pathname.toLowerCase();
+  const pageText = normalize(String(page.visible_text || '')).toLowerCase();
+
+  if (isWpResetToolPage(page)) {
+    if (!approved) {
+      return {
+        reply: 'WP Reset page e achi. Final site reset destructive, tai ekbar confirm korlei execute korbo.',
+        reasoning: 'The current page appears to be the WP Reset tool page, but there is no explicit reset approval in the current goal or memory.',
+        questions: ['Confirm korben je ei site reset korte hobe?'],
+        needs_approval: true,
+      };
+    }
+
+    const confirmField = wpResetConfirmField(page);
+    if (confirmField) {
+      return {
+        reply: 'WP Reset confirm field e "reset" type korchi.',
+        reasoning: 'The WP Reset page exposes a confirmation input that still needs the required reset keyword.',
+        action: {
+          type: 'type',
+          target: confirmField,
+          value: 'reset',
+          reason: 'Type the required WP Reset confirmation keyword after explicit user approval.',
+        },
+      };
+    }
+
+    const finalButton = wpResetFinalButton(page);
+    if (finalButton) {
+      return {
+        reply: 'Final reset button click korchi.',
+        reasoning: 'The reset confirmation appears ready and the final reset control is visible.',
+        action: {
+          type: 'click',
+          target: finalButton,
+          value: '',
+          reason: 'Click the final WP Reset control after explicit user approval.',
+          accept_dialog: true,
+        },
+      };
+    }
+
+    return {
+      reply: 'WP Reset page e achi, final control load/visible howar jonno abar observe korchi.',
+      reasoning: 'The reset page is open, but the confirmation input or final reset button is not visible in the snapshot yet.',
+      action: { type: 'observe', target: 'current page', value: '', reason: 'Refresh the page snapshot before deciding the final reset target.' },
+    };
+  }
+
+  if (path.includes('/wp-admin/plugins.php')) {
+    const activateHref = wpResetHref(page, /action=activate/i);
+    if (activateHref) {
+      return {
+        reply: 'WP Reset plugin inactive dekhacche, activate korchi.',
+        reasoning: 'The Plugins page snapshot contains a WP Reset activation link with a WordPress nonce.',
+        action: {
+          type: 'navigate',
+          target: activateHref,
+          value: activateHref,
+          reason: 'Open the WP Reset activation URL from the current Plugins page snapshot.',
+        },
+      };
+    }
+
+    if (pageText.includes('wp reset') && (pageText.includes('deactivate') || pageText.includes('active'))) {
+      const url = adminUrl(admin, 'tools.php?page=wp-reset');
+      return {
+        reply: 'WP Reset plugin active mone hocche, tool page open korchi.',
+        reasoning: 'The Plugins page includes WP Reset and active/deactivate text, so the next step is the WP Reset tool page.',
+        action: { type: 'navigate', target: url, value: url, reason: 'Open WP Reset tools page.' },
+      };
+    }
+
+    const installUrl = adminUrl(admin, 'plugin-install.php?s=wp+reset&tab=search&type=term');
+    return {
+      reply: 'WP Reset plugin plugins list e clear dekhte pacchi na, install/search page open korchi.',
+      reasoning: 'The Plugins page did not expose an activate or active WP Reset row, so searching plugin-install is the next safe step.',
+      action: { type: 'navigate', target: installUrl, value: installUrl, reason: 'Search WP Reset in WordPress plugin installer.' },
+    };
+  }
+
+  if (path.includes('/wp-admin/plugin-install.php')) {
+    const installHref = wpResetHref(page, /action=install-plugin/i);
+    if (installHref) {
+      return {
+        reply: 'WP Reset plugin install korchi.',
+        reasoning: 'The plugin installer snapshot contains the WP Reset install URL.',
+        action: {
+          type: 'navigate',
+          target: installHref,
+          value: installHref,
+          reason: 'Open the WP Reset install URL from the current plugin installer page.',
+        },
+      };
+    }
+
+    const activateHref = wpResetHref(page, /action=activate/i);
+    if (activateHref) {
+      return {
+        reply: 'WP Reset installed, activate korchi.',
+        reasoning: 'The plugin installer snapshot contains a WP Reset activate URL.',
+        action: { type: 'navigate', target: activateHref, value: activateHref, reason: 'Activate WP Reset after installation.' },
+      };
+    }
+
+    return {
+      reply: 'WP Reset search/install result load howar jonno wait korchi.',
+      reasoning: 'The plugin installer is open but the WP Reset install/activate link is not visible yet.',
+      action: { type: 'wait', target: 'wp-reset-plugin-search', value: 1500, reason: 'Wait for WordPress plugin search results.' },
+    };
+  }
+
+  const pluginsUrl = adminUrl(admin, 'plugins.php?s=wp+reset&plugin_status=all');
+  return {
+    reply: 'Plugins page e giye WP Reset status check korchi.',
+    reasoning: 'The current page is WordPress admin, and the reset flow starts by checking whether WP Reset is installed/active.',
+    action: { type: 'navigate', target: pluginsUrl, value: pluginsUrl, reason: 'Open Plugins search filtered to WP Reset.' },
+  };
+}
+
 function clickPlan(goal, page) {
   const lower = goal.toLowerCase();
   if (!/\b(click|open|press|tap|play)\b/.test(lower)) return null;
@@ -746,6 +944,121 @@ function clickPlan(goal, page) {
 
 function hasExplicitActionIntent(goal) {
   return /\b(click|open|press|tap|tab|jao|go|goto|navigate|play|watch)\b/i.test(goal);
+}
+
+function isWpResetGoal(text) {
+  const lower = String(text || '').toLowerCase();
+  if (lower.includes('wp reset')) return true;
+  if (lower.includes('wordpress reset')) return true;
+  if (lower.includes('plugin active') && lower.includes('reset')) return true;
+  if (lower.includes('plugin activate') && lower.includes('reset')) return true;
+  if (/\breset\b/.test(lower) && /\b(site|wordpress|wp|plugin|local|database|db)\b/.test(lower)) return true;
+  return /\breset\s+(kor|koro|korbo|korte|kore|dao|daw)\b/.test(lower);
+}
+
+function hasRiskApproval(text) {
+  return RISK_APPROVAL_RE.test(text) && /\b(reset|delete|remove|destroy|wipe|erase|clear|drop|truncate|publish|deploy)\b/i.test(text);
+}
+
+function isContinuationApproval(text) {
+  const lower = normalize(text).toLowerCase();
+  if (!lower) return false;
+  if (hasExplicitActionIntent(lower) || isYoutubeMediaGoal(lower)) return false;
+  const wordsOnly = lower.split(/\s+/).filter(Boolean);
+  return wordsOnly.length <= 8 && RISK_APPROVAL_RE.test(lower);
+}
+
+function wpAdminContext(page) {
+  const url = parseUrl(page.url || '');
+  if (!url) return { url: null, base: '' };
+
+  const marker = '/wp-admin/';
+  const lowerPath = url.pathname.toLowerCase();
+  const markerIndex = lowerPath.indexOf(marker);
+  const prefix = markerIndex >= 0 ? url.pathname.slice(0, markerIndex) : '';
+  return {
+    url,
+    base: `${url.origin}${prefix}${marker}`,
+  };
+}
+
+function adminUrl(admin, relativePath) {
+  return new URL(relativePath.replace(/^\/+/, ''), admin.base).toString();
+}
+
+function wpResetHref(page, actionPattern) {
+  const clickables = Array.isArray(page.clickables) ? page.clickables : [];
+  for (const item of clickables) {
+    if (!isPlainObject(item)) continue;
+    const href = String(item.href || '');
+    const decoded = decodeURIComponent(href).toLowerCase();
+    if (!href || !decoded.includes('wp-reset')) continue;
+    if (!actionPattern.test(decoded)) continue;
+    return href;
+  }
+  return '';
+}
+
+function isWpResetToolPage(page) {
+  const url = String(page.url || '').toLowerCase();
+  const text = normalize(String(page.visible_text || '')).toLowerCase();
+  return url.includes('page=wp-reset') || (text.includes('wp reset') && text.includes('reset site'));
+}
+
+function wpResetConfirmField(page) {
+  const forms = Array.isArray(page.forms) ? page.forms : [];
+  let sawConfirmField = false;
+  for (const form of forms) {
+    if (!isPlainObject(form)) continue;
+    const fields = Array.isArray(form.fields) ? form.fields : [];
+    for (const field of fields) {
+      if (!isPlainObject(field)) continue;
+      const haystack = normalize([
+        field.selector,
+        field.name,
+        field.placeholder,
+        field.type,
+      ].filter(Boolean).join(' ')).toLowerCase();
+      if (!/\b(reset|confirm)\b/.test(haystack)) continue;
+      sawConfirmField = true;
+      if (Number(field.value_length || 0) > 0) continue;
+      return field.ref || field.selector || '';
+    }
+  }
+
+  return sawConfirmField ? '' : '#wp-reset-confirm,input[name="wp-reset-confirm"],input[name="wp_reset_confirm"],input[placeholder*="reset" i]';
+}
+
+function wpResetFinalButton(page) {
+  const clickables = Array.isArray(page.clickables) ? page.clickables : [];
+  const preferred = [
+    'Yes, reset',
+    'Yes, reset site',
+    'Yes, reset WordPress',
+    'Confirm reset',
+    'Confirm',
+    'OK',
+    'Yes',
+    'Reset Site',
+    'Reset WordPress',
+    'Reset site',
+    'Reset WordPress site',
+  ];
+
+  for (const label of preferred) {
+    const found = clickables.find((item) => isPlainObject(item) && normalize(item.text).toLowerCase() === label.toLowerCase());
+    if (found) return found.ref || `text=${label}`;
+  }
+
+  const fuzzy = clickables.find((item) => {
+    if (!isPlainObject(item)) return false;
+    const text = normalize(item.text).toLowerCase();
+    if (/^(ok|yes|confirm|yes, reset|confirm reset)$/.test(text)) return true;
+    return text.includes('reset') && (text.includes('site') || text.includes('wordpress'));
+  });
+  if (fuzzy) return fuzzy.ref || `text=${normalize(fuzzy.text)}`;
+
+  return 'text=Reset Site';
 }
 
 function isYoutubeMediaGoal(goal) {

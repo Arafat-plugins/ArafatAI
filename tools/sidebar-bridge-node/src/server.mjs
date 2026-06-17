@@ -108,10 +108,11 @@ export function createBridgeServer(config = {}) {
   }
 
   async function runPlanJob(taskId, body) {
+    let taskState = {};
     try {
       const request = await buildPlanRequest(taskId, body);
       if (!request) return;
-      const taskState = isPlainObject(request.task_state) ? request.task_state : {};
+      taskState = isPlainObject(request.task_state) ? request.task_state : {};
       const result = await reason(request);
       await tasks.appendEvent(taskId, {
         kind: 'plan',
@@ -121,6 +122,16 @@ export function createBridgeServer(config = {}) {
         text: result.text,
         source: result.source,
         error: result.error,
+      });
+    } catch (error) {
+      await tasks.appendEvent(taskId, {
+        kind: 'plan',
+        status: 'blocked',
+        step: taskState.step || body?.task_state?.step || '',
+        ok: false,
+        text: '',
+        source: 'node-bridge',
+        error: error?.stack || error?.message || String(error),
       });
     } finally {
       planningTasks.delete(taskId);
