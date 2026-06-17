@@ -53,6 +53,133 @@ def test_local_planner_marks_youtube_navigation_done_after_open():
     assert data["actions"] == []
 
 
+def test_local_planner_routes_youtube_play_goal_to_youtube_search_not_current_page_links():
+    data = parse_reply(
+        {
+            "mode": "agent_task",
+            "goal": "goto youtube and play nora fateh fifa new video",
+            "page": {
+                "url": "https://directorist.com/pricing/",
+                "title": "Directorist Pricing",
+                "clickables": [
+                    {"ref": "ref_10", "text": "FormGent", "href": "https://www.formgent.com/"},
+                    {"ref": "ref_11", "text": "Pricing", "href": "https://directorist.com/pricing/"},
+                ],
+            },
+        },
+        allow_question_fallback=False,
+    )
+
+    assert data["done"] is False
+    assert data["actions"][0]["type"] == "navigate"
+    assert data["actions"][0]["target"].startswith("https://www.youtube.com/results?")
+    assert "nora+fateh+fifa+new" in data["actions"][0]["target"]
+    assert "formgent" not in data["actions"][0]["target"].lower()
+
+
+def test_local_planner_does_not_mark_youtube_results_done_for_play_goal():
+    data = parse_reply(
+        {
+            "mode": "agent_task",
+            "goal": "goto youtube and play nora fateh fifa new video",
+            "page": {
+                "url": "https://www.youtube.com/results?search_query=nora+fateh+fifa+new",
+                "title": "nora fateh fifa new - YouTube",
+                "clickables": [],
+            },
+            "task_state": {"observations": []},
+        },
+        allow_question_fallback=False,
+    )
+
+    assert data["done"] is False
+    assert data["actions"][0]["type"] == "wait"
+    assert data["actions"][0]["target"] == "youtube-results"
+
+
+def test_local_planner_opens_youtube_watch_href_instead_of_clicking_stale_ref():
+    data = parse_reply(
+        {
+            "mode": "agent_task",
+            "goal": "goto youtube and play nora fateh fifa new video",
+            "page": {
+                "url": "https://www.youtube.com/results?search_query=nora+fateh+fifa+new",
+                "title": "nora fateh fifa new - YouTube",
+                "clickables": [
+                    {
+                        "ref": "ref_627",
+                        "text": "Nora Fatehi FIFA Fan Festival official video",
+                        "href": "https://www.youtube.com/watch?v=abc123",
+                    }
+                ],
+            },
+        },
+        allow_question_fallback=False,
+    )
+
+    assert data["done"] is False
+    assert data["actions"][0]["type"] == "navigate"
+    assert data["actions"][0]["target"] == "https://www.youtube.com/watch?v=abc123"
+
+
+def test_local_planner_researches_youtube_when_current_watch_page_does_not_match_song_request():
+    data = parse_reply(
+        {
+            "mode": "agent_task",
+            "goal": "i told you play nora fateh songs",
+            "page": {
+                "url": "https://www.youtube.com/watch?v=unrelated",
+                "title": "Unrelated video - YouTube",
+                "visible_text": "Unrelated video",
+            },
+        },
+        allow_question_fallback=False,
+    )
+
+    assert data["done"] is False
+    assert data["actions"][0]["type"] == "navigate"
+    assert "nora+fateh+songs" in data["actions"][0]["target"]
+
+
+def test_local_planner_clicks_visible_youtube_skip_ad_button():
+    data = parse_reply(
+        {
+            "mode": "agent_task",
+            "goal": "skip the add",
+            "page": {
+                "url": "https://www.youtube.com/watch?v=abc123",
+                "title": "YouTube",
+                "clickables": [{"ref": "ref_9", "text": "Skip Ad", "selector": ".ytp-ad-skip-button"}],
+            },
+        },
+        allow_question_fallback=False,
+    )
+
+    assert data["done"] is False
+    assert data["actions"][0]["type"] == "click"
+    assert data["actions"][0]["target"] == "text=Skip Ad"
+
+
+def test_local_planner_waits_for_youtube_skip_ad_button_when_not_visible_yet():
+    data = parse_reply(
+        {
+            "mode": "agent_task",
+            "goal": "skip the add",
+            "page": {
+                "url": "https://www.youtube.com/watch?v=abc123",
+                "title": "YouTube",
+                "clickables": [{"ref": "ref_1", "text": "Pause"}],
+            },
+            "task_state": {"observations": []},
+        },
+        allow_question_fallback=False,
+    )
+
+    assert data["done"] is False
+    assert data["actions"][0]["type"] == "wait"
+    assert data["actions"][0]["target"] == "youtube-ad"
+
+
 def test_local_planner_marks_google_image_search_done_after_open():
     data = parse_reply(
         {

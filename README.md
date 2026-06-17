@@ -1,11 +1,16 @@
-# AQL AI
+# FLUID
 
 Personal AI operating system for Arafat.
 
 Goal:
 
 ```text
-Python-first AI core
+current Chrome sidebar testing
+Node local bridge
+Codex CLI temporary provider
+no Python runtime required for sidebar testing
+
+later FLUID core
 multiple specialized agents
 browser/file/shell/git tools
 memory and lessons
@@ -46,7 +51,13 @@ docs/           architecture and roadmap
 tests/          automated tests
 ```
 
-## First Commands
+## Sidebar Test Commands
+
+```powershell
+node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 60
+```
+
+## Later Python Core Commands
 
 ```bash
 python -m pip install -e .
@@ -99,20 +110,20 @@ Risky actions are blocked unless `--yes` is passed.
 
 ## Local Codex Bridge For Sidebar Testing
 
-The Chrome sidebar extension talks to a local AQL AI bridge. The bridge then
-calls Codex CLI in read-only, ephemeral mode for complex planning. For obvious
-safe browser intents, a small Python local planner can answer immediately so
-basic navigation/search tasks do not time out when Codex is slow.
+The Chrome sidebar extension talks to a local FLUID bridge at
+`http://127.0.0.1:8792`. The default bridge for sidebar testing is now a
+dependency-free Node.js service that calls Codex CLI as the temporary testing
+provider. The extension does not require Python packages for normal
+browser-agent tests.
 
-```bash
-python -m arafatai bridge-server --port 8792 --token arafatai-local-token
+```powershell
+node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 60
 ```
 
-If Codex CLI is not found automatically:
+Or double-click:
 
-```bash
-set ARAFATAI_CODEX_CLI_PATH=C:\path\to\codex.exe
-python -m arafatai bridge-server --port 8792 --token arafatai-local-token
+```text
+tools\sidebar-bridge-node\start-bridge.cmd
 ```
 
 Extension folder:
@@ -147,8 +158,8 @@ The sidebar uses a provider-independent agent contract:
 }
 ```
 
-Codex is only the temporary testing provider. Later, AQL AI's own model can
-return the same JSON shape and the sidebar will keep working.
+The provider is replaceable. Later, FLUID's own model can return the same JSON
+shape and the sidebar will keep working.
 
 The sidebar now runs a small dynamic action-observation loop. The AI can choose
 safe browser actions, the extension runs them, then the updated page observation
@@ -203,7 +214,7 @@ observe  -> re-read the page
 ```
 
 Chrome internal pages such as `chrome://newtab` cannot be inspected like a
-normal website DOM. For those pages, AQL AI uses tab navigation instead of DOM
+normal website DOM. For those pages, FLUID uses tab navigation instead of DOM
 clicking. If the task needs credentials, payment, CAPTCHA, destructive changes,
 publishing, or irreversible admin settings, the AI should ask before continuing.
 
@@ -240,7 +251,7 @@ python -m arafatai remember \
 ## Tiny GPT Learning Module
 
 Tiny GPT is for learning how LLM training works by hand. It is not meant to be
-the production brain for AQL AI.
+the production brain for FLUID.
 
 Install the optional PyTorch dependency when you are ready for this part:
 
@@ -263,5 +274,5 @@ Generate text:
 ```bash
 python -m arafatai.learning.tiny_gpt.generate \
   --checkpoint-dir runs/tiny-gpt \
-  --prompt "AQL AI"
+  --prompt "FLUID"
 ```

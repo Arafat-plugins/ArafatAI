@@ -33,10 +33,17 @@ STOP_WORDS = {
     "ekta",
     "e",
     "er",
+    "i",
+    "me",
+    "my",
     "the",
     "to",
     "te",
     "ta",
+    "told",
+    "tell",
+    "you",
+    "your",
     "theke",
     "from",
     "for",
@@ -54,6 +61,7 @@ STOP_WORDS = {
     "korte",
     "jai",
     "jao",
+    "goto",
     "open",
     "go",
     "search",
@@ -120,6 +128,10 @@ def build_local_agent_reply(body: dict[str, object], *, allow_question_fallback:
             needs_approval=True,
         )
 
+    youtube_ad_reply = _youtube_ad_reply(goal, page, task_state)
+    if youtube_ad_reply:
+        return youtube_ad_reply
+
     read_only_reply = _read_only_reply(goal, page)
     if read_only_reply:
         return read_only_reply
@@ -156,6 +168,19 @@ def build_local_agent_reply(body: dict[str, object], *, allow_question_fallback:
             actions=[youtube_action],
             done=False,
             needs_approval=False,
+        )
+
+    if _is_youtube_media_goal(goal, page):
+        return _dump(
+            reply="I need a visible YouTube result or player control before I click anything.",
+            reasoning_summary=[
+                _page_evidence(page),
+                "This looks like a YouTube/video/song request, so I will not click unrelated controls from the current page.",
+            ],
+            questions=["Should I open YouTube search for this song/video?"],
+            actions=[],
+            done=False,
+            needs_approval=True,
         )
 
     search_action = _search_plan(goal)
@@ -542,20 +567,121 @@ def _theme_name_from_text(text: str) -> str:
     return match.group(1) if match else ""
 
 
+def _youtube_ad_reply(goal: str, page: dict[str, object], task_state: dict[str, object]) -> str | None:
+    if not _is_skip_ad_goal(goal):
+        return None
+
+    if not _is_youtube_url(str(page.get("url") or "")):
+        return _dump(
+            reply="I can skip ads only when the current tab is a YouTube player.",
+            reasoning_summary=[
+                _page_evidence(page),
+                "The user asked to skip an ad, but the current page is not a YouTube page.",
+            ],
+            questions=["Open the YouTube tab/video first?"],
+            actions=[],
+            done=False,
+            needs_approval=True,
+        )
+
+    skip_target = _youtube_skip_ad_target(page)
+    if skip_target:
+        action = {
+            "type": "click",
+            "target": skip_target["target"],
+            "value": "",
+            "reason": f"Click visible YouTube ad control: {skip_target['text'][:80]}.",
+        }
+        return _dump(
+            reply="I found the Skip Ad control.",
+            reasoning_summary=[
+                _page_evidence(page),
+                f'The current YouTube snapshot has a visible "{skip_target["text"][:80]}" control.',
+            ],
+            questions=[],
+            actions=[action],
+            done=False,
+            needs_approval=False,
+        )
+
+    observations = task_state.get("observations") if isinstance(task_state.get("observations"), list) else []
+    recent_waits = sum(
+        1
+        for item in observations[-4:]
+        if isinstance(item, dict) and "youtube-ad" in str(item.get("result") or item.get("message") or "").lower()
+    )
+    if recent_waits < 2:
+        return _dump(
+            reply="Skip Ad button ekhono visible na, wait kore abar check korchi.",
+            reasoning_summary=[
+                _page_evidence(page),
+                "The current YouTube snapshot does not expose a Skip Ad button yet.",
+            ],
+            questions=[],
+            actions=[
+                {
+                    "type": "wait",
+                    "target": "youtube-ad",
+                    "value": 1200,
+                    "reason": "Wait briefly for a YouTube Skip Ad button to appear.",
+                }
+            ],
+            done=False,
+            needs_approval=False,
+        )
+
+    return _dump(
+        reply="I do not see a Skip Ad button on the current YouTube player right now.",
+        reasoning_summary=[
+            _page_evidence(page),
+            "After waiting, the supplied page snapshots still did not show a Skip Ad control.",
+        ],
+        questions=[],
+        actions=[],
+        done=True,
+        needs_approval=False,
+    )
+
+
+def _is_skip_ad_goal(goal: str) -> bool:
+    lower = goal.lower()
+    return "skip" in lower and bool(re.search(r"\b(ad|ads|add|adds)\b", lower))
+
+
+def _youtube_skip_ad_target(page: dict[str, object]) -> dict[str, str] | None:
+    clickables = page.get("clickables") if isinstance(page.get("clickables"), list) else []
+    for item in clickables:
+        if not isinstance(item, dict):
+            continue
+        text = _normalize(str(item.get("text") or item.get("aria_label") or ""))
+        lower = text.lower()
+        if "skip" not in lower or not re.search(r"\b(ad|ads)\b", lower):
+            continue
+        target = f"text={text}" if text else str(item.get("ref") or item.get("selector") or "")
+        if target:
+            return {"target": target, "text": text or "Skip Ad"}
+    return None
+
+
 def _completion_plan(goal: str, page: dict[str, object]) -> str | None:
     current_url = str(page.get("url") or "")
     parsed = urlparse(current_url)
     host = parsed.netloc.lower()
     lower = goal.lower()
 
-    if "youtube" in lower and "youtube.com" in host:
+    if _is_youtube_url(current_url) and ("youtube" in lower or _is_playback_goal(goal)):
         query = _extract_query(goal, extra_stop={"youtube"})
-        if "play" in lower and "/watch" in parsed.path:
-            return _done_reply(page, "The current page is already a YouTube watch page.")
+        wants_play = _is_playback_goal(goal)
+        if wants_play and "/watch" in parsed.path:
+            if not query or _query_matches_page(query, page):
+                return _done_reply(page, "The current page is already a matching YouTube watch page.")
+            return None
         if query:
             params = parse_qs(parsed.query)
             current_query = _normalize(unquote_plus(" ".join(params.get("search_query", [])))).lower()
             if "results" in parsed.path and _normalize(query).lower() in current_query:
+                if wants_play:
+                    return None
                 return _done_reply(page, f'The current YouTube results page already matches "{query}".')
         elif parsed.path in {"", "/"}:
             return _done_reply(page, "The current page is already the YouTube homepage.")
@@ -620,9 +746,16 @@ def _done_reply(page: dict[str, object], reason: str) -> str:
 def _youtube_plan(goal: str, page: dict[str, object]) -> dict[str, object] | None:
     lower = goal.lower()
     current_url = str(page.get("url") or "")
+    parsed = urlparse(current_url)
+    is_youtube_page = _is_youtube_url(current_url)
+    wants_youtube = "youtube" in lower or _is_playback_goal(goal)
+    wants_play = _is_playback_goal(goal)
+    if not wants_youtube:
+        return None
 
-    if "youtube" in lower and re.search(r"\b(jao|go|open|open koro|navigate)\b", lower):
-        query = _extract_query(goal, extra_stop={"youtube"})
+    query = _extract_query(goal, extra_stop={"youtube"})
+
+    if not is_youtube_page:
         if not query:
             return {
                 "type": "navigate",
@@ -639,19 +772,37 @@ def _youtube_plan(goal: str, page: dict[str, object]) -> dict[str, object] | Non
             "_reasoning": f'The goal names YouTube with query "{query}".',
         }
 
-    if "youtube.com" in current_url and re.search(r"\b(video|play|search|course)\b", lower):
-        video = _first_youtube_video(page)
-        if video and "play" in lower:
+    if query and "/watch" in parsed.path and not _query_matches_page(query, page):
+        return {
+            "type": "navigate",
+            "target": _youtube_search_url(query),
+            "value": _youtube_search_url(query),
+            "reason": f"Search YouTube for {query}.",
+            "_reasoning": f'The current YouTube watch page does not match the requested query "{query}".',
+        }
+
+    if wants_play:
+        video = _first_youtube_video(page, query=query)
+        if video:
             return {
-                "type": "click",
-                "target": video["target"],
-                "value": "",
-                "reason": "Play the first visible YouTube video result.",
-                "_reasoning": "The current YouTube snapshot contains a visible watch link.",
+                "type": "navigate",
+                "target": video["href"],
+                "value": video["href"],
+                "reason": f"Open visible YouTube video: {video['text'][:80]}.",
+                "_reasoning": "The current YouTube snapshot contains a visible watch link, so navigating to its href avoids stale click refs.",
             }
 
-        query = _extract_query(goal, extra_stop={"youtube"})
         if query:
+            params = parse_qs(parsed.query)
+            current_query = _normalize(unquote_plus(" ".join(params.get("search_query", [])))).lower()
+            if "results" in parsed.path and _normalize(query).lower() in current_query:
+                return {
+                    "type": "wait",
+                    "target": "youtube-results",
+                    "value": 1200,
+                    "reason": "Wait for YouTube video results to finish loading.",
+                    "_reasoning": "The current YouTube results URL matches the query, but the snapshot does not expose a watch link yet.",
+                }
             return {
                 "type": "navigate",
                 "target": _youtube_search_url(query),
@@ -659,6 +810,15 @@ def _youtube_plan(goal: str, page: dict[str, object]) -> dict[str, object] | Non
                 "reason": f"Search YouTube for {query}.",
                 "_reasoning": f'The current page is YouTube and the extracted video query is "{query}".',
             }
+
+    if query:
+        return {
+            "type": "navigate",
+            "target": _youtube_search_url(query),
+            "value": _youtube_search_url(query),
+            "reason": f"Search YouTube for {query}.",
+            "_reasoning": f'The current page is YouTube and the extracted query is "{query}".',
+        }
 
     return None
 
@@ -758,7 +918,40 @@ def _click_plan(goal: str, page: dict[str, object]) -> dict[str, object] | None:
 
 
 def _has_explicit_action_intent(goal: str) -> bool:
-    return bool(re.search(r"\b(click|open|press|tap|tab|jao|go|navigate)\b", goal.lower()))
+    return bool(re.search(r"\b(click|open|press|tap|tab|jao|go|goto|navigate|play|watch)\b", goal.lower()))
+
+
+def _is_youtube_media_goal(goal: str, page: dict[str, object]) -> bool:
+    lower = goal.lower()
+    return "youtube" in lower or _is_playback_goal(goal) or _is_skip_ad_goal(goal)
+
+
+def _is_playback_goal(goal: str) -> bool:
+    return bool(re.search(r"\b(play|watch|song|songs|music|video|videos)\b", goal.lower()))
+
+
+def _is_youtube_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    return host == "youtube.com" or host.endswith(".youtube.com")
+
+
+def _query_matches_page(query: str, page: dict[str, object]) -> bool:
+    haystack = _normalize(
+        " ".join(
+            [
+                str(page.get("title") or ""),
+                str(page.get("visible_text") or "")[:1600],
+                str(page.get("url") or ""),
+            ]
+        )
+    ).lower()
+    terms = [word for word in _words(query) if word not in STOP_WORDS and len(word) > 2]
+    if not terms:
+        return False
+    score = sum(1 for term in terms if term in haystack)
+    threshold = 1 if len(terms) == 1 else max(2, min(len(terms), round(len(terms) * 0.6)))
+    return score >= threshold
 
 
 def _same_url_without_hash(left: str, right: str) -> bool:
@@ -781,8 +974,9 @@ def _same_url_without_hash(left: str, right: str) -> bool:
     )
 
 
-def _first_youtube_video(page: dict[str, object]) -> dict[str, str] | None:
+def _first_youtube_video(page: dict[str, object], *, query: str = "") -> dict[str, str] | None:
     clickables = page.get("clickables") if isinstance(page.get("clickables"), list) else []
+    candidates: list[dict[str, str]] = []
     for item in clickables:
         if not isinstance(item, dict):
             continue
@@ -790,10 +984,32 @@ def _first_youtube_video(page: dict[str, object]) -> dict[str, str] | None:
         text = _normalize(str(item.get("text") or ""))
         if "/watch" not in href or not text:
             continue
-        target = str(item.get("ref") or item.get("selector") or "")
-        if target:
-            return {"target": target, "text": text}
-    return None
+        full_href = _youtube_watch_href(href)
+        if not full_href:
+            continue
+        candidates.append({"href": full_href, "text": text})
+
+    if not candidates:
+        return None
+
+    query_terms = [word for word in _words(query) if word not in STOP_WORDS and len(word) > 2]
+    if not query_terms:
+        return candidates[0]
+
+    def score(candidate: dict[str, str]) -> int:
+        haystack = f"{candidate['text']} {candidate['href']}".lower()
+        return sum(1 for term in query_terms if term in haystack)
+
+    best = max(candidates, key=score)
+    return best if score(best) > 0 else candidates[0]
+
+
+def _youtube_watch_href(href: str) -> str:
+    if href.startswith("/watch"):
+        return f"https://www.youtube.com{href}"
+    if re.match(r"^https?://", href, re.IGNORECASE) and _is_youtube_url(href) and "/watch" in urlparse(href).path:
+        return href
+    return ""
 
 
 def _extract_query(goal: str, *, extra_stop: set[str] | None = None) -> str:

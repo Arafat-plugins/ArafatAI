@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "AQL AI Sidebar",
+  "name": "FLUID Sidebar",
   "version": "0.1.0",
-  "description": "Local AQL AI sidebar that sends page snapshots to the Codex CLI bridge.",
+  "description": "Local FLUID sidebar that sends page snapshots to the Codex CLI bridge.",
   "icons": {
     "16": "assets/aql-brain-16.png",
     "32": "assets/aql-brain-32.png",
@@ -25,7 +25,7 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "AQL AI",
+    "default_title": "FLUID",
     "default_icon": {
       "16": "assets/aql-brain-16.png",
       "32": "assets/aql-brain-32.png",

@@ -1,0 +1,12 @@
+{
+  "name": "arafatai-sidebar-bridge-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Python-free local HTTP bridge for the FLUID Chrome sidebar.",
+  "type": "module",
+  "main": "src/server.mjs",
+  "scripts": {
+    "start": "node src/server.mjs --port 8792 --token arafatai-local-token --provider codex --timeout 60",
+    "test": "node --test test"
+  }
+}

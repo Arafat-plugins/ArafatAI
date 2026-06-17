@@ -3,6 +3,9 @@ const els = {
   thread: document.getElementById('thread'),
   message: document.getElementById('message'),
   send: document.getElementById('send'),
+  attach: document.getElementById('attach'),
+  imageInput: document.getElementById('image-input'),
+  attachments: document.getElementById('attachments'),
 };
 
 const BRIDGE_URL = 'http://127.0.0.1:8792';
@@ -12,9 +15,86 @@ const PLAN_POLL_INTERVAL_MS = 1500;
 const MAX_PLAN_POLLS = 40;
 const POST_ACTION_SETTLE_MS = 900;
 const NAVIGATION_SETTLE_TIMEOUT_MS = 7000;
+const MAX_ATTACHMENTS = 6;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MEMORY_STORAGE_KEY = 'aql_ai_sidebar_memory_v1';
+const ASSISTANT_NAME = 'FLUID';
 
 let history = [];
+let conversationMemory = loadConversationMemory();
+let pendingAttachments = [];
 let activeTaskId = null;
+let activeTraceGroup = null;
+let activeTraceList = null;
+let activeTraceCount = 0;
+
+function scrollThreadToBottom() {
+  requestAnimationFrame(() => {
+    els.thread.scrollTop = els.thread.scrollHeight;
+    window.scrollTo({
+      top: document.documentElement.scrollHeight,
+      behavior: 'auto',
+    });
+  });
+}
+
+function focusMessageInput() {
+  try {
+    els.message.focus({ preventScroll: true });
+  } catch {
+    els.message.focus();
+  }
+}
+
+function updateTraceSummary() {
+  if (!activeTraceGroup) return;
+
+  const count = activeTraceGroup.querySelector('.steps-count');
+  const status = activeTraceGroup.querySelector('.steps-status');
+  const hasThinking = Boolean(activeTraceGroup.querySelector('.trace.thinking'));
+  const hasError = Boolean(activeTraceGroup.querySelector('.trace.error'));
+
+  activeTraceGroup.classList.toggle('done', activeTraceCount > 0 && !hasThinking && !hasError);
+  activeTraceGroup.classList.toggle('error', hasError);
+
+  if (count) {
+    const label = activeTraceCount === 1 ? 'step' : 'steps';
+    count.textContent = `${activeTraceCount} ${label}`;
+  }
+
+  if (status) {
+    status.textContent = hasError ? 'Stopped' : hasThinking ? 'Working' : activeTraceCount ? 'Done' : '';
+  }
+}
+
+function startTraceGroup() {
+  const details = document.createElement('details');
+  details.className = 'steps-panel';
+
+  const summary = document.createElement('summary');
+  const count = document.createElement('span');
+  count.className = 'steps-count';
+  const status = document.createElement('span');
+  status.className = 'steps-status';
+  summary.append(count, status);
+
+  const list = document.createElement('div');
+  list.className = 'steps-list';
+
+  details.append(summary, list);
+  els.thread.append(details);
+
+  activeTraceGroup = details;
+  activeTraceList = list;
+  activeTraceCount = 0;
+  updateTraceSummary();
+  scrollThreadToBottom();
+}
+
+function ensureTraceGroup() {
+  if (!activeTraceGroup || !activeTraceList) startTraceGroup();
+  return activeTraceList;
+}
 
 function setStatus(text, thinking = false) {
   els.status.textContent = text;
@@ -25,25 +105,348 @@ function normalizeText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
-function addMessage(role, text) {
+function shortenText(text, limit = 500) {
+  const value = normalizeText(text);
+  return value.length <= limit ? value : `${value.slice(0, limit)}...`;
+}
+
+function loadConversationMemory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MEMORY_STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveConversationMemory() {
+  try {
+    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(conversationMemory));
+  } catch {
+    // Memory is helpful context, but it should never block the chat UI.
+  }
+}
+
+function memoryTurns() {
+  return history.slice(-10).map((entry) => ({
+    role: entry.role,
+    text: shortenText(entry.text, 700),
+    attachments: Array.isArray(entry.attachments) ? entry.attachments : [],
+  }));
+}
+
+function normalizedMemoryHistory(turns) {
+  if (!Array.isArray(turns)) return [];
+  return turns.slice(-10).filter((entry) => entry && typeof entry === 'object').map((entry) => ({
+    role: entry.role === 'assistant' ? 'assistant' : 'user',
+    text: shortenText(entry.text, 700),
+    attachments: Array.isArray(entry.attachments) ? entry.attachments : [],
+  }));
+}
+
+function summarizeTurns(turns) {
+  return turns
+    .slice(-8)
+    .map((entry) => `${entry.role === 'assistant' ? ASSISTANT_NAME : 'User'}: ${shortenText(entry.text, 220)}`)
+    .filter((line) => line.trim().length > 8)
+    .join('\n');
+}
+
+function syncConversationMemory() {
+  const turns = memoryTurns();
+  conversationMemory = {
+    ...conversationMemory,
+    summary: summarizeTurns(turns),
+    recent_turns: turns,
+    updated_at: new Date().toISOString(),
+  };
+  saveConversationMemory();
+}
+
+function rememberObservedPage(page) {
+  if (!page?.url && !page?.title) return;
+  conversationMemory = {
+    ...conversationMemory,
+    last_page: {
+      url: page.url || '',
+      title: page.title || '',
+      visible_text_sample: shortenText(page.visible_text, 500),
+      captured_at: page.captured_at || new Date().toISOString(),
+    },
+    updated_at: new Date().toISOString(),
+  };
+  saveConversationMemory();
+}
+
+function rememberTaskResult(goal, reply, status = 'done') {
+  conversationMemory = {
+    ...conversationMemory,
+    last_task: {
+      goal: shortenText(goal, 700),
+      reply: shortenText(reply, 900),
+      status,
+      task_id: activeTaskId || '',
+      finished_at: new Date().toISOString(),
+    },
+    updated_at: new Date().toISOString(),
+  };
+  syncConversationMemory();
+}
+
+function conversationMemoryPayload() {
+  return {
+    summary: conversationMemory.summary || '',
+    recent_turns: Array.isArray(conversationMemory.recent_turns) ? conversationMemory.recent_turns.slice(-10) : [],
+    last_page: conversationMemory.last_page || null,
+    last_task: conversationMemory.last_task || null,
+    updated_at: conversationMemory.updated_at || '',
+  };
+}
+
+history = normalizedMemoryHistory(conversationMemory.recent_turns);
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function appendParagraph(container, lines) {
+  const text = lines.join('\n').trim();
+  if (!text) return;
+  const paragraph = document.createElement('p');
+  paragraph.textContent = text;
+  container.append(paragraph);
+}
+
+function appendList(container, items, ordered = false) {
+  if (!items.length) return;
+  const list = document.createElement(ordered ? 'ol' : 'ul');
+  for (const item of items) {
+    const li = document.createElement('li');
+    li.textContent = item;
+    list.append(li);
+  }
+  container.append(list);
+}
+
+function commaListFromLine(line) {
+  const match = /^(.{8,180}?:)\s+(.+)$/.exec(line);
+  if (!match) return null;
+  const rawItems = match[2].split(',').map((item) => item.trim()).filter(Boolean);
+  const shortItems = rawItems.filter((item) => item.length <= 60);
+  if (rawItems.length < 4 || shortItems.length !== rawItems.length) return null;
+  if (/https?:\/\//i.test(match[2])) return null;
+  return { lead: match[1], items: rawItems };
+}
+
+function renderRichText(container, text) {
+  const lines = String(text || '(empty)').split(/\r?\n/);
+  let paragraphLines = [];
+  let listItems = [];
+  let orderedItems = [];
+
+  function flushParagraph() {
+    appendParagraph(container, paragraphLines);
+    paragraphLines = [];
+  }
+
+  function flushLists() {
+    appendList(container, listItems, false);
+    appendList(container, orderedItems, true);
+    listItems = [];
+    orderedItems = [];
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushLists();
+      continue;
+    }
+
+    const commaList = commaListFromLine(line);
+    if (commaList) {
+      flushParagraph();
+      flushLists();
+      appendParagraph(container, [commaList.lead]);
+      appendList(container, commaList.items, false);
+      continue;
+    }
+
+    const bullet = /^[-*]\s+(.+)$/.exec(line);
+    if (bullet) {
+      flushParagraph();
+      if (orderedItems.length) flushLists();
+      listItems.push(bullet[1]);
+      continue;
+    }
+
+    const ordered = /^\d+[.)]\s+(.+)$/.exec(line);
+    if (ordered) {
+      flushParagraph();
+      if (listItems.length) flushLists();
+      orderedItems.push(ordered[1]);
+      continue;
+    }
+
+    flushLists();
+    paragraphLines.push(line);
+  }
+
+  flushParagraph();
+  flushLists();
+}
+
+function renderMessageAttachments(article, attachments = [], removable = false) {
+  if (!attachments.length) return;
+  const list = document.createElement('div');
+  list.className = 'message-attachments';
+
+  attachments.forEach((attachment, index) => {
+    const item = document.createElement('figure');
+    item.className = 'message-attachment';
+
+    const img = document.createElement('img');
+    img.src = attachment.preview_url || attachment.data_url || '';
+    img.alt = attachment.name || `Uploaded image ${index + 1}`;
+
+    const caption = document.createElement('figcaption');
+    caption.textContent = `${index + 1}. ${attachment.name || 'Image'}`;
+
+    item.append(img, caption);
+
+    if (removable) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.setAttribute('aria-label', `Remove ${attachment.name || `image ${index + 1}`}`);
+      remove.textContent = 'x';
+      remove.addEventListener('click', () => {
+        pendingAttachments = pendingAttachments.filter((entry) => entry.id !== attachment.id);
+        renderPendingAttachments();
+        focusMessageInput();
+      });
+      item.append(remove);
+    }
+
+    list.append(item);
+  });
+
+  article.append(list);
+}
+
+function compactAttachmentForHistory(attachment, index) {
+  return {
+    order: attachment.order || index + 1,
+    source: attachment.source || 'user-upload',
+    name: attachment.name,
+    type: attachment.type,
+    size: attachment.size,
+  };
+}
+
+function attachmentPayload(attachments) {
+  return attachments.map((attachment, index) => ({
+    id: attachment.id,
+    order: index + 1,
+    name: attachment.name,
+    source: attachment.source || 'user-upload',
+    type: attachment.type,
+    size: attachment.size,
+    data_url: attachment.data_url,
+  }));
+}
+
+function renderPendingAttachments() {
+  els.attachments.replaceChildren();
+  els.attachments.hidden = pendingAttachments.length === 0;
+  renderMessageAttachments(els.attachments, pendingAttachments, true);
+}
+
+function addMessage(role, text, attachments = []) {
   const article = document.createElement('article');
   article.className = `message ${role}`;
 
   const name = document.createElement('span');
-  name.textContent = role === 'user' ? 'You' : 'AQL AI';
+  name.textContent = role === 'user' ? 'You' : ASSISTANT_NAME;
 
-  const body = document.createElement('p');
-  body.textContent = text || '(empty)';
+  const body = document.createElement('div');
+  body.className = 'message-body';
+  if (role === 'assistant') {
+    renderRichText(body, text || '(empty)');
+  } else {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = text || (attachments.length ? 'Uploaded image' : '(empty)');
+    body.append(paragraph);
+  }
 
   article.append(name, body);
+  renderMessageAttachments(article, attachments);
   els.thread.append(article);
-  article.scrollIntoView({ block: 'end' });
+  scrollThreadToBottom();
 
-  history.push({ role, text: text || '' });
+  history.push({
+    role,
+    text: text || '',
+    attachments: attachments.map(compactAttachmentForHistory),
+  });
   history = history.slice(-10);
+  syncConversationMemory();
+}
+
+function screenshotPolicyForGoal(goal) {
+  const text = normalizeText(goal).toLowerCase();
+  const asksToShowScreenshot = /\b(screenshot|screen shot|screen capture)\b/.test(text)
+    && /\b(show|open|display|preview|dekhao|dekhan|dekhaw|dekhte chai)\b/.test(text);
+  const asksVisualQuestion = /\b(screenshot|screen shot|image|photo|picture|visual|screen|ui|visible|dekho|dekhe|kothay|where)\b/.test(text);
+  const asksBrowserAction = /\b(click|press|type|input|fill|select|choose|open|navigate|go|jao|dhuko|tab|scroll|console|error|issue|problem|button|check|inspect)\b/.test(text);
+
+  return {
+    capture: asksVisualQuestion || asksBrowserAction,
+    show: asksToShowScreenshot,
+  };
+}
+
+function addSnapshotCard(page, screenshot, step) {
+  if (!screenshot?.preview_url) return;
+
+  const article = document.createElement('article');
+  article.className = 'snapshot-card';
+
+  const header = document.createElement('div');
+  header.className = 'snapshot-card-header';
+
+  const title = document.createElement('span');
+  title.textContent = `Screenshot ${step}`;
+
+  const meta = document.createElement('span');
+  meta.textContent = page?.title || page?.url || 'current tab';
+
+  header.append(title, meta);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'snapshot-card-image';
+  button.setAttribute('aria-label', `Open screenshot ${step}`);
+
+  const image = document.createElement('img');
+  image.src = screenshot.preview_url;
+  image.alt = `Screenshot ${step} of ${page?.title || page?.url || 'current tab'}`;
+
+  button.append(image);
+  button.addEventListener('click', () => {
+    window.open(screenshot.preview_url, '_blank', 'noopener,noreferrer');
+  });
+
+  article.append(header, button);
+  els.thread.append(article);
+  scrollThreadToBottom();
 }
 
 function addTrace(text, detail = '', state = '') {
+  const traceList = ensureTraceGroup();
   const article = document.createElement('article');
   article.className = state ? `trace ${state}` : 'trace';
 
@@ -54,8 +457,10 @@ function addTrace(text, detail = '', state = '') {
   body.textContent = detail ? `${text}\n${detail}` : text;
 
   article.append(label, body);
-  els.thread.append(article);
-  article.scrollIntoView({ block: 'end' });
+  traceList.append(article);
+  activeTraceCount += 1;
+  updateTraceSummary();
+  scrollThreadToBottom();
   return article;
 }
 
@@ -75,6 +480,7 @@ function setTraceState(article, state = '') {
           ? 'Stopped'
           : 'Trace';
   }
+  updateTraceSummary();
 }
 
 function setTraceText(article, text, detail = '') {
@@ -84,13 +490,15 @@ function setTraceText(article, text, detail = '') {
   if (body) {
     body.textContent = detail ? `${text}\n${detail}` : text;
   }
-  article.scrollIntoView({ block: 'end' });
+  updateTraceSummary();
+  scrollThreadToBottom();
 }
 
 function clearThinkingTraces(state = 'done') {
   els.thread.querySelectorAll('.trace.thinking').forEach((trace) => {
     setTraceState(trace, state);
   });
+  updateTraceSummary();
 }
 
 function formatAction(action) {
@@ -177,6 +585,32 @@ async function optionalPageSnapshot() {
     return response?.ok ? response.snapshot : fallbackTabSnapshot(tab);
   } catch {
     return fallbackTabSnapshot(tab);
+  }
+}
+
+async function captureCurrentScreenshot(step) {
+  const tab = await activeTab();
+  if (!tab?.windowId || !isScriptableTab(tab)) return null;
+
+  try {
+    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+      format: 'jpeg',
+      quality: 72,
+    });
+    if (!dataUrl) return null;
+    return {
+      id: `screenshot-${Date.now()}-${step}`,
+      order: step,
+      source: 'current-tab-screenshot',
+      name: `current-tab-step-${step}.jpg`,
+      type: 'image/jpeg',
+      size: Math.round((dataUrl.length * 3) / 4),
+      data_url: dataUrl,
+      preview_url: dataUrl,
+    };
+  } catch (error) {
+    addTrace('Screenshot capture skipped.', error.message || String(error), 'error');
+    return null;
   }
 }
 
@@ -325,8 +759,13 @@ async function waitForTabNavigation(tabId, { expectedUrl = '', previousUrl = '',
   return latest;
 }
 
-async function startTask(goal) {
-  const data = await bridgePost('/tasks', { goal, history });
+async function startTask(goal, attachments = []) {
+  const data = await bridgePost('/tasks', {
+    goal,
+    history,
+    conversation_memory: conversationMemoryPayload(),
+    attachments: attachmentPayload(attachments),
+  });
   return data.task;
 }
 
@@ -336,10 +775,11 @@ function latestPlanEvent(task, step) {
   return matches[matches.length - 1] || null;
 }
 
-async function planTask(taskId, page, taskState) {
+async function planTask(taskId, page, taskState, attachments = []) {
   const planningTrace = addTrace(`Planner requested for step ${taskState.step}/${MAX_AGENT_STEPS}.`, '', 'thinking');
   await bridgePost(`/tasks/${taskId}/plan-async`, {
     page,
+    attachments: attachmentPayload(attachments),
     task_state: taskState,
     approval_policy: 'auto-safe-actions',
   });
@@ -496,32 +936,41 @@ async function runAgentAction(action) {
   return { ok: false, message: `Unsupported action type: ${action.type}`, action };
 }
 
-async function runAgentTask(goal) {
-  const task = await startTask(goal);
+async function runAgentTask(goal, attachments = []) {
+  const task = await startTask(goal, attachments);
   activeTaskId = task.id;
   const observations = [];
   let finalReply = '';
+  const screenshotPolicy = screenshotPolicyForGoal(goal);
 
+  startTraceGroup();
   addTrace(`Task checkpoint created: ${activeTaskId.slice(0, 8)}.`);
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step += 1) {
     setStatus(`Working ${step}/${MAX_AGENT_STEPS}...`, true);
     addTrace(`Reading current tab snapshot for step ${step}.`);
     const page = await optionalPageSnapshot();
+    const screenshot = screenshotPolicy.capture ? await captureCurrentScreenshot(step) : null;
     addTrace(`Observed page: ${page.title || page.url || 'current tab'}.`, page.url || '');
+    rememberObservedPage(page);
+    if (screenshot && screenshotPolicy.show) addSnapshotCard(page, screenshot, step);
     await recordTaskEvent(activeTaskId, {
       kind: 'observation',
       status: 'running',
       step,
       snapshot: page,
       message: `Observed ${page.title || page.url || 'current tab'}.`,
+      attachments: [
+        ...attachments.map(compactAttachmentForHistory),
+        ...(screenshot ? [compactAttachmentForHistory(screenshot, 0)] : []),
+      ],
     });
 
     const { agentReply } = await planTask(activeTaskId, page, {
       step,
       max_steps: MAX_AGENT_STEPS,
       observations: observations.slice(-8),
-    });
+    }, screenshot ? [screenshot] : []);
 
     finalReply = readableReply(agentReply);
 
@@ -579,29 +1028,89 @@ async function runAgentTask(goal) {
 }
 
 async function sendMessage() {
-  const goal = normalizeText(els.message.value);
-  if (!goal) return;
+  const rawGoal = normalizeText(els.message.value);
+  const attachments = pendingAttachments.slice();
+  const goal = rawGoal || (attachments.length ? 'Please inspect the uploaded image(s) and follow my visual instructions in order.' : '');
+  if (!goal && !attachments.length) return;
 
-  addMessage('user', goal);
+  addMessage('user', rawGoal || 'Uploaded image', attachments);
   els.message.value = '';
+  pendingAttachments = [];
+  renderPendingAttachments();
   els.send.disabled = true;
   setStatus('Working...', true);
 
   try {
-    const reply = await runAgentTask(goal);
+    const reply = await runAgentTask(goal, attachments);
     clearThinkingTraces();
     addMessage('assistant', reply || '(empty response)');
+    rememberTaskResult(goal, reply || '(empty response)', 'done');
     setStatus('Ready');
   } catch (error) {
     clearThinkingTraces('error');
-    addMessage('assistant', error.message || String(error));
+    const message = error.message || String(error);
+    addMessage('assistant', message);
+    rememberTaskResult(goal, message, 'error');
     setStatus('Needs bridge');
   } finally {
     clearThinkingTraces();
     els.send.disabled = false;
-    els.message.focus();
+    scrollThreadToBottom();
+    focusMessageInput();
   }
 }
+
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => {
+      resolve(String(reader.result || ''));
+    });
+    reader.addEventListener('error', () => {
+      reject(reader.error || new Error('Could not read image.'));
+    });
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addImageFiles(files) {
+  const available = Math.max(0, MAX_ATTACHMENTS - pendingAttachments.length);
+  const selected = Array.from(files || []).slice(0, available);
+  for (const file of selected) {
+    if (!file.type.startsWith('image/')) {
+      addTrace('Image skipped.', `${file.name} is not an image.`, 'error');
+      continue;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      addTrace('Image skipped.', `${file.name} is larger than ${formatBytes(MAX_ATTACHMENT_BYTES)}.`, 'error');
+      continue;
+    }
+    const dataUrl = await readImageFile(file);
+    pendingAttachments.push({
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      data_url: dataUrl,
+      preview_url: dataUrl,
+    });
+  }
+  renderPendingAttachments();
+}
+
+els.attach.addEventListener('click', () => {
+  els.imageInput.click();
+});
+
+els.imageInput.addEventListener('change', async () => {
+  try {
+    await addImageFiles(els.imageInput.files);
+  } catch (error) {
+    addTrace('Image upload failed.', error.message || String(error), 'error');
+  } finally {
+    els.imageInput.value = '';
+  }
+});
 
 els.send.addEventListener('click', sendMessage);
 els.message.addEventListener('keydown', (event) => {
@@ -610,4 +1119,4 @@ els.message.addEventListener('keydown', (event) => {
     sendMessage();
   }
 });
-els.message.focus();
+focusMessageInput();

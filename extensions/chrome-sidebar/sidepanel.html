@@ -3,30 +3,39 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AQL AI</title>
+  <title>FLUID</title>
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <img class="brand-logo" src="assets/aql-brain.png" alt="" aria-hidden="true">
-      <div>
-        <strong>AQL AI</strong>
-        <span id="status">Ready</span>
-      </div>
+      <strong>FLUID</strong>
     </div>
+    <span id="status">Ready</span>
   </header>
 
-  <main id="thread" class="thread" aria-live="polite">
-    <article class="message assistant">
-      <span>AQL AI</span>
-      <p>Hi. Ask me anything.</p>
-    </article>
-  </main>
+  <div class="modelbar">
+    <button class="model-button" type="button">FLUID Agent <span aria-hidden="true">v</span></button>
+    <button class="more-button" type="button" aria-label="More options">...</button>
+  </div>
 
-  <footer class="composer">
-    <textarea id="message" rows="3" placeholder="Message AQL AI"></textarea>
-    <button id="send" type="button">Send</button>
+  <main id="thread" class="thread" aria-live="polite"></main>
+
+  <footer class="composer-shell">
+    <div class="composer">
+      <div id="attachments" class="attachments" hidden></div>
+      <textarea id="message" rows="2" placeholder="Ask FLUID"></textarea>
+      <div class="composer-actions">
+        <button class="mode-button" type="button">Ask before acting <span aria-hidden="true">v</span></button>
+        <span class="composer-spacer" aria-hidden="true"></span>
+        <button id="attach" class="tool-button" type="button" aria-label="Upload image">+</button>
+        <button id="send" class="send-button" type="button" aria-label="Send message">
+          <span aria-hidden="true">&#8593;</span>
+        </button>
+      </div>
+      <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+    </div>
+    <p class="disclaimer">FLUID can make mistakes. Check important actions before applying them.</p>
   </footer>
 
   <script src="sidepanel.js"></script>
