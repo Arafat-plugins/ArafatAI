@@ -17,7 +17,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     cwd: repoRoot,
     provider: 'codex',
     codexPath: '',
-    timeoutSeconds: 60,
+    timeoutSeconds: 120,
     allowLocalFallback: false,
   };
 
@@ -61,7 +61,7 @@ export function createBridgeServer(config = {}) {
     cwd: path.resolve(config.cwd || process.cwd()),
     provider: config.provider || 'codex',
     codexPath: config.codexPath || '',
-    timeoutSeconds: Number(config.timeoutSeconds || 60),
+    timeoutSeconds: Number(config.timeoutSeconds || 120),
     allowLocalFallback: Boolean(config.allowLocalFallback),
   };
   const tasks = new TaskStore(path.join(finalConfig.cwd, 'runs', 'bridge-tasks'));

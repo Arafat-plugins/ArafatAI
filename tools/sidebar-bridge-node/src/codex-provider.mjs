@@ -169,6 +169,9 @@ export function buildExtensionPrompt(body = {}) {
     instructions.push(
       'Return strict JSON only.',
       'Schema: {"reply":"short user-facing answer","reasoning_summary":["1-4 short evidence-based bullets"],"questions":["short question if needed"],"actions":[{"type":"navigate|search|click|type|press|wait|observe","target":"ref id, selector, URL, or search query","value":"optional query/text/URL/key/wait ms","mode":"web|images","reason":"why this action is safe and relevant"}],"done":true|false,"needs_approval":true|false}',
+      'The JSON must be valid: escape every newline inside reply strings as \\n, escape quotes, and never print Markdown or code outside the JSON object.',
+      'When the user asks for code, fixing code, exact code, or "code dao", put the final code in exactly one fenced code block inside reply. Do not split JS and CSS into separate code blocks; use path comments inside one block if multiple files are needed.',
+      'Code answers must be production-style: minimal scope, no intervals unless necessary, no broad selectors when specific selectors exist, and include assumptions before the single code block if needed.',
       'Use ref ids from page.accessibility_tree when available, for example target: "ref_12".',
       'Use selectors or exact visible text from the supplied page snapshot only when no ref id exists.',
       'For click actions, never use generic selectors like "a", "button", "input", "textarea", "select", or "[role=button]". Use a ref id or target like "text=Exact visible label".',
@@ -273,7 +276,7 @@ export async function reasonWithCodex(body = {}, config = {}) {
   }
 
   const cwd = path.resolve(config.cwd || process.cwd());
-  const timeoutMs = Math.max(1000, Number(config.timeoutSeconds || 60) * 1000);
+  const timeoutMs = Math.max(1000, Number(config.timeoutSeconds || 120) * 1000);
   const prompt = buildExtensionPrompt(body);
   const imagePaths = compactAttachments(body.attachments)
     .map((attachment) => attachment.path)

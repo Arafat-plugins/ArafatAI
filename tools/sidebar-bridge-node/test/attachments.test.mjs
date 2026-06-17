@@ -82,3 +82,15 @@ test('Codex prompt includes durable conversation and task memory', () => {
   assert.match(prompt, /Add time slot/);
   assert.match(prompt, /Could not find click target/);
 });
+
+test('Codex prompt requires valid JSON and one code block for code answers', () => {
+  const prompt = buildExtensionPrompt({
+    mode: 'agent_task',
+    goal: 'exact fixing code dao',
+  });
+
+  assert.match(prompt, /The JSON must be valid/);
+  assert.match(prompt, /escape every newline inside reply strings/);
+  assert.match(prompt, /exactly one fenced code block/);
+  assert.match(prompt, /Do not split JS and CSS into separate code blocks/);
+});

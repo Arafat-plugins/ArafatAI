@@ -13,6 +13,7 @@ const BRIDGE_TOKEN = 'arafatai-local-token';
 const MAX_AGENT_STEPS = 8;
 const PLAN_POLL_INTERVAL_MS = 1500;
 const MAX_PLAN_POLLS = 40;
+const MAX_CODE_PLAN_POLLS = 80;
 const POST_ACTION_SETTLE_MS = 900;
 const NAVIGATION_SETTLE_TIMEOUT_MS = 7000;
 const MAX_ATTACHMENTS = 6;
@@ -212,11 +213,45 @@ function formatBytes(bytes) {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function appendTextWithPrettyLinks(container, text) {
+  const urlPattern = /https?:\/\/[^\s<>"']+/gi;
+  let lastIndex = 0;
+  let match = urlPattern.exec(text);
+
+  while (match) {
+    const rawMatch = match[0];
+    let url = rawMatch;
+    let trailing = '';
+
+    while (/[),.;:!?]$/.test(url)) {
+      trailing = `${url.slice(-1)}${trailing}`;
+      url = url.slice(0, -1);
+    }
+
+    container.append(document.createTextNode(text.slice(lastIndex, match.index)));
+
+    const anchor = document.createElement('a');
+    anchor.className = 'inline-link';
+    anchor.href = url;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.title = url;
+    anchor.textContent = compactUrlLabel(url);
+    container.append(anchor);
+
+    if (trailing) container.append(document.createTextNode(trailing));
+    lastIndex = match.index + rawMatch.length;
+    match = urlPattern.exec(text);
+  }
+
+  container.append(document.createTextNode(text.slice(lastIndex)));
+}
+
 function appendParagraph(container, lines) {
   const text = lines.join('\n').trim();
   if (!text) return;
   const paragraph = document.createElement('p');
-  paragraph.textContent = text;
+  appendTextWithPrettyLinks(paragraph, text);
   container.append(paragraph);
 }
 
@@ -229,6 +264,153 @@ function appendList(container, items, ordered = false) {
     list.append(li);
   }
   container.append(list);
+}
+
+function codeLanguageLabel(language) {
+  const normalized = String(language || '').trim().toLowerCase();
+  const labels = {
+    bash: 'Shell',
+    css: 'CSS',
+    html: 'HTML',
+    javascript: 'JavaScript',
+    js: 'JavaScript',
+    json: 'JSON',
+    jsx: 'JSX',
+    php: 'PHP',
+    powershell: 'PowerShell',
+    ps1: 'PowerShell',
+    sh: 'Shell',
+    shell: 'Shell',
+    text: 'Text',
+    ts: 'TypeScript',
+    tsx: 'TSX',
+    typescript: 'TypeScript',
+    xml: 'XML',
+  };
+  return labels[normalized] || normalized.toUpperCase() || 'Code';
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
+function appendCodeToken(container, className, text) {
+  if (!text) return;
+  if (!className) {
+    container.append(document.createTextNode(text));
+    return;
+  }
+
+  const token = document.createElement('span');
+  token.className = `code-token ${className}`;
+  token.textContent = text;
+  container.append(token);
+}
+
+function codeTokenClass(token, language) {
+  if (/^\/\*[\s\S]*\*\/$/.test(token)
+    || /^\/\/[^\n]*$/.test(token)
+    || (/^#[^\n]*$/.test(token) && /^(bash|sh|shell|powershell|ps1)$/i.test(language))) {
+    return 'comment';
+  }
+  if (/^["'`]/.test(token)) return 'string';
+  if (/^\b\d+(?:\.\d+)?\b$/.test(token)) return 'number';
+  if (/^(true|false|null|undefined)$/i.test(token)) return 'literal';
+  if (/^(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|class|new|try|catch|finally|throw|async|await|import|export|from|default|extends|this|typeof|instanceof|in|of|echo|cd|dir|ls|npm|node|git|where|select|string|public|private|protected|static|namespace|use|array|object)$/i.test(token)) {
+    return 'keyword';
+  }
+  if (/^(document|window|chrome|jQuery|\$|console|Promise|Array|Object|String|Number|Boolean|JSON|Date|Get-ChildItem|Select-String|Set-Location|Write-Host)$/i.test(token)) {
+    return 'builtin';
+  }
+  if (/^[{}()[\].,;:+\-*/%=<>!&|?]+$/.test(token)) return 'operator';
+  return '';
+}
+
+function appendHighlightedCode(codeElement, code, language) {
+  const normalizedLanguage = String(language || '').trim().toLowerCase();
+  if (code.length > 50000) {
+    codeElement.textContent = code;
+    return;
+  }
+
+  const commentPattern = /^(bash|sh|shell|powershell|ps1)$/i.test(normalizedLanguage)
+    ? String.raw`#[^\n]*`
+    : String.raw`\/\*[\s\S]*?\*\/|\/\/[^\n]*`;
+  const tokenPattern = new RegExp(
+    `${commentPattern}|"(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|\`(?:\\\\.|[^\`\\\\])*\`|\\b[A-Za-z_$][\\w$-]*\\b|\\b\\d+(?:\\.\\d+)?\\b|[{}()[\\].,;:+\\-*/%=<>!&|?]+`,
+    'g',
+  );
+
+  let lastIndex = 0;
+  let match = tokenPattern.exec(code);
+  while (match) {
+    appendCodeToken(codeElement, '', code.slice(lastIndex, match.index));
+    appendCodeToken(codeElement, codeTokenClass(match[0], normalizedLanguage), match[0]);
+    lastIndex = tokenPattern.lastIndex;
+    match = tokenPattern.exec(code);
+  }
+  appendCodeToken(codeElement, '', code.slice(lastIndex));
+}
+
+function appendCodeBlock(container, lines, language = '') {
+  const code = lines.join('\n').replace(/\n+$/g, '');
+  if (!code) return;
+
+  const shell = document.createElement('figure');
+  shell.className = 'code-shell';
+
+  const header = document.createElement('figcaption');
+  header.className = 'code-shell-header';
+
+  const label = document.createElement('span');
+  label.className = 'code-shell-language';
+  label.textContent = codeLanguageLabel(language);
+
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'code-copy-button';
+  copy.textContent = 'Copy';
+  copy.setAttribute('aria-label', `Copy ${label.textContent} code`);
+  copy.addEventListener('click', async () => {
+    copy.disabled = true;
+    try {
+      await copyTextToClipboard(code);
+      copy.textContent = 'Copied';
+      setTimeout(() => {
+        copy.textContent = 'Copy';
+        copy.disabled = false;
+      }, 1300);
+    } catch {
+      copy.textContent = 'Failed';
+      setTimeout(() => {
+        copy.textContent = 'Copy';
+        copy.disabled = false;
+      }, 1300);
+    }
+  });
+
+  header.append(label, copy);
+
+  const pre = document.createElement('pre');
+  const codeElement = document.createElement('code');
+  if (language) codeElement.className = `language-${language.replace(/[^a-z0-9_-]/gi, '')}`;
+  appendHighlightedCode(codeElement, code, language);
+  pre.append(codeElement);
+  shell.append(header, pre);
+  container.append(shell);
 }
 
 function commaListFromLine(line) {
@@ -246,6 +428,9 @@ function renderRichText(container, text) {
   let paragraphLines = [];
   let listItems = [];
   let orderedItems = [];
+  let codeLines = [];
+  let codeLanguage = '';
+  let inCodeBlock = false;
 
   function flushParagraph() {
     appendParagraph(container, paragraphLines);
@@ -260,6 +445,27 @@ function renderRichText(container, text) {
   }
 
   for (const rawLine of lines) {
+    const fence = rawLine.trim().match(/^```([a-z0-9_-]*)\s*$/i);
+    if (fence) {
+      if (inCodeBlock) {
+        appendCodeBlock(container, codeLines, codeLanguage);
+        codeLines = [];
+        codeLanguage = '';
+        inCodeBlock = false;
+      } else {
+        flushParagraph();
+        flushLists();
+        codeLanguage = fence[1] || '';
+        inCodeBlock = true;
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(rawLine);
+      continue;
+    }
+
     const line = rawLine.trim();
     if (!line) {
       flushParagraph();
@@ -298,6 +504,7 @@ function renderRichText(container, text) {
 
   flushParagraph();
   flushLists();
+  if (inCodeBlock) appendCodeBlock(container, codeLines, codeLanguage);
 }
 
 function renderMessageAttachments(article, attachments = [], removable = false) {
@@ -407,6 +614,12 @@ function screenshotPolicyForGoal(goal) {
     capture: asksVisualQuestion || asksBrowserAction,
     show: asksToShowScreenshot,
   };
+}
+
+function plannerPollLimitForGoal(goal) {
+  const text = normalizeText(goal).toLowerCase();
+  const asksForCode = /\b(code|script|css|js|php|snippet|fixing|fix|exact|implementation|implement|shell)\b/.test(text);
+  return asksForCode ? MAX_CODE_PLAN_POLLS : MAX_PLAN_POLLS;
 }
 
 function addSnapshotCard(page, screenshot, step) {
@@ -616,15 +829,121 @@ async function captureCurrentScreenshot(step) {
 
 function extractJsonObject(text) {
   const trimmed = String(text || '').trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1].trim() : trimmed;
+  if (trimmed.startsWith('{')) return trimmed;
 
+  const fenced = trimmed.match(/```json\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : trimmed;
   if (candidate.startsWith('{')) return candidate;
 
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return '';
   return candidate.slice(start, end + 1);
+}
+
+function normalizeAgentReplyData(data) {
+  return {
+    reply: String(data?.reply || data?.answer || ''),
+    reasoning_summary: Array.isArray(data?.reasoning_summary) ? data.reasoning_summary : [],
+    questions: Array.isArray(data?.questions) ? data.questions : [],
+    actions: Array.isArray(data?.actions) ? data.actions : [],
+    done: Boolean(data?.done),
+    needs_approval: Boolean(data?.needs_approval),
+  };
+}
+
+function decodeLooseJsonString(value) {
+  const text = String(value || '');
+  try {
+    return JSON.parse(`"${text.replace(/\r?\n/g, '\\n')}"`);
+  } catch {
+    return text
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '\n')
+      .replace(/\\\\/g, '\\');
+  }
+}
+
+function extractLooseStringProperty(jsonText, property) {
+  const pattern = new RegExp(`"${property}"\\s*:\\s*"`);
+  const match = pattern.exec(jsonText);
+  if (!match) return '';
+
+  const start = match.index + match[0].length;
+  const after = jsonText.slice(start);
+  const delimiters = [
+    '"reasoning_summary"',
+    '"questions"',
+    '"actions"',
+    '"done"',
+    '"needs_approval"',
+  ];
+  const delimiterIndexes = delimiters
+    .map((delimiter) => after.indexOf(`",${delimiter}`))
+    .filter((index) => index >= 0);
+  const end = delimiterIndexes.length ? Math.min(...delimiterIndexes) : after.lastIndexOf('"');
+
+  return end >= 0 ? decodeLooseJsonString(after.slice(0, end)) : '';
+}
+
+function extractJsonSection(jsonText, property, opener, closer) {
+  const pattern = new RegExp(`"${property}"\\s*:\\s*\\${opener}`);
+  const match = pattern.exec(jsonText);
+  if (!match) return '';
+
+  const start = match.index + match[0].lastIndexOf(opener);
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < jsonText.length; index += 1) {
+    const char = jsonText[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (char === opener) depth += 1;
+    if (char === closer) depth -= 1;
+    if (depth === 0) return jsonText.slice(start, index + 1);
+  }
+
+  return '';
+}
+
+function extractLooseArrayProperty(jsonText, property) {
+  const section = extractJsonSection(jsonText, property, '[', ']');
+  if (!section) return [];
+  try {
+    const parsed = JSON.parse(section);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseLooseAgentReply(jsonText) {
+  const reply = extractLooseStringProperty(jsonText, 'reply');
+  if (!reply) return null;
+
+  return normalizeAgentReplyData({
+    reply,
+    reasoning_summary: extractLooseArrayProperty(jsonText, 'reasoning_summary'),
+    questions: extractLooseArrayProperty(jsonText, 'questions'),
+    actions: extractLooseArrayProperty(jsonText, 'actions'),
+    done: /"done"\s*:\s*true\b/.test(jsonText),
+    needs_approval: /"needs_approval"\s*:\s*true\b/.test(jsonText),
+  });
 }
 
 function parseAgentReply(text) {
@@ -642,15 +961,11 @@ function parseAgentReply(text) {
 
   try {
     const data = JSON.parse(jsonText);
-    return {
-      reply: String(data.reply || data.answer || ''),
-      reasoning_summary: Array.isArray(data.reasoning_summary) ? data.reasoning_summary : [],
-      questions: Array.isArray(data.questions) ? data.questions : [],
-      actions: Array.isArray(data.actions) ? data.actions : [],
-      done: Boolean(data.done),
-      needs_approval: Boolean(data.needs_approval),
-    };
+    return normalizeAgentReplyData(data);
   } catch {
+    const looseReply = parseLooseAgentReply(jsonText);
+    if (looseReply) return looseReply;
+
     return {
       reply: String(text || ''),
       reasoning_summary: [],
@@ -662,6 +977,43 @@ function parseAgentReply(text) {
   }
 }
 
+function compactUrlLabel(rawUrl) {
+  try {
+    const url = new URL(String(rawUrl || ''));
+    const host = url.hostname.replace(/^www\./i, '');
+    const path = url.pathname.replace(/\/$/, '');
+
+    if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be') {
+      if (path === '/results') {
+        const query = normalizeText(url.searchParams.get('search_query') || url.searchParams.get('q') || '');
+        return query ? `YouTube search: ${query}` : 'YouTube search results';
+      }
+      if (path === '/watch' || host === 'youtu.be') return 'YouTube video';
+      return `YouTube${path ? ` ${path}` : ''}`;
+    }
+
+    if (host === 'google.com' || host.endsWith('.google.com')) {
+      if (path === '/search') {
+        const query = normalizeText(url.searchParams.get('q') || '');
+        return query ? `Google search: ${query}` : 'Google search results';
+      }
+      return `Google${path ? ` ${path}` : ''}`;
+    }
+
+    return `${host}${path || '/'}`;
+  } catch {
+    return shortenText(rawUrl, 90);
+  }
+}
+
+function formatOpenedMessage(url) {
+  return `Opened: ${compactUrlLabel(url)}`;
+}
+
+function isLowValueObservation(message) {
+  return /^(Observed current page\.|Observed [^.]+\.|Waited \d+ms\.|(click|type|press) completed\.|Opened: .+)$/i.test(message);
+}
+
 function readableReply(agentReply, observations = []) {
   const lines = [];
   const seenObservations = new Set();
@@ -670,6 +1022,7 @@ function readableReply(agentReply, observations = []) {
   for (const item of observations) {
     const message = normalizeText(item?.message || '');
     if (!message || seenObservations.has(message)) continue;
+    if (agentReply.reply && isLowValueObservation(message)) continue;
     seenObservations.add(message);
     uniqueObservations.push(item);
   }
@@ -775,7 +1128,7 @@ function latestPlanEvent(task, step) {
   return matches[matches.length - 1] || null;
 }
 
-async function planTask(taskId, page, taskState, attachments = []) {
+async function planTask(taskId, page, taskState, attachments = [], maxPolls = MAX_PLAN_POLLS) {
   const planningTrace = addTrace(`Planner requested for step ${taskState.step}/${MAX_AGENT_STEPS}.`, '', 'thinking');
   await bridgePost(`/tasks/${taskId}/plan-async`, {
     page,
@@ -786,7 +1139,7 @@ async function planTask(taskId, page, taskState, attachments = []) {
 
   let lastProgressSecond = 0;
   let waitingTrace = null;
-  for (let poll = 1; poll <= MAX_PLAN_POLLS; poll += 1) {
+  for (let poll = 1; poll <= maxPolls; poll += 1) {
     setStatus(`Planning ${taskState.step}/${MAX_AGENT_STEPS}...`, true);
     await sleep(PLAN_POLL_INTERVAL_MS);
     const elapsedSeconds = Math.round((poll * PLAN_POLL_INTERVAL_MS) / 1000);
@@ -814,7 +1167,7 @@ async function planTask(taskId, page, taskState, attachments = []) {
 
   if (waitingTrace) setTraceState(waitingTrace, 'error');
   setTraceState(planningTrace, 'error');
-  throw new Error(`Planner stayed busy after ${Math.round((MAX_PLAN_POLLS * PLAN_POLL_INTERVAL_MS) / 1000)}s. I stopped this attempt instead of waiting on the same route. Task checkpoint is saved.`);
+  throw new Error(`Planner stayed busy after ${Math.round((maxPolls * PLAN_POLL_INTERVAL_MS) / 1000)}s. I stopped this attempt instead of waiting on the same route. Task checkpoint is saved.`);
 }
 
 async function recordTaskEvent(taskId, event) {
@@ -853,7 +1206,7 @@ async function runTabAction(action, tab) {
     const previousUrl = tab.url || '';
     await chrome.tabs.update(tab.id, { url });
     await waitForTabNavigation(tab.id, { expectedUrl: url, previousUrl });
-    return { ok: true, message: `Opened: ${url}`, action };
+    return { ok: true, message: formatOpenedMessage(url), action, result: { url } };
   }
 
   if (action.type === 'search') {
@@ -867,8 +1220,9 @@ async function runTabAction(action, tab) {
     await waitForTabNavigation(tab.id, { expectedUrl: url, previousUrl });
     return {
       ok: true,
-      message: `Opened Google ${action.mode === 'images' ? 'image ' : ''}search for: ${query}`,
+      message: `Opened: Google ${action.mode === 'images' ? 'image ' : ''}search: ${query}`,
       action,
+      result: { url },
     };
   }
 
@@ -942,6 +1296,7 @@ async function runAgentTask(goal, attachments = []) {
   const observations = [];
   let finalReply = '';
   const screenshotPolicy = screenshotPolicyForGoal(goal);
+  const planPollLimit = plannerPollLimitForGoal(goal);
 
   startTraceGroup();
   addTrace(`Task checkpoint created: ${activeTaskId.slice(0, 8)}.`);
@@ -970,7 +1325,7 @@ async function runAgentTask(goal, attachments = []) {
       step,
       max_steps: MAX_AGENT_STEPS,
       observations: observations.slice(-8),
-    }, screenshot ? [screenshot] : []);
+    }, screenshot ? [screenshot] : [], planPollLimit);
 
     finalReply = readableReply(agentReply);
 

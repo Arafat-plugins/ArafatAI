@@ -54,7 +54,7 @@ tests/          automated tests
 ## Sidebar Test Commands
 
 ```powershell
-node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 60
+node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 120
 ```
 
 ## Later Python Core Commands
@@ -117,7 +117,7 @@ provider. The extension does not require Python packages for normal
 browser-agent tests.
 
 ```powershell
-node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 60
+node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 120
 ```
 
 Or double-click:

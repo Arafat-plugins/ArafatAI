@@ -163,6 +163,27 @@ button {
   overflow-wrap: anywhere;
 }
 
+.message.assistant .inline-link {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border: 1px solid #ded6ca;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: #fffdfa;
+  color: #6d4f8f;
+  font-size: .92em;
+  line-height: 1.45;
+  text-decoration: none;
+  vertical-align: 1px;
+}
+
+.message.assistant .inline-link:hover {
+  border-color: #cdbfdc;
+  background: #f7f1fb;
+  color: #563879;
+}
+
 .message.assistant ul,
 .message.assistant ol {
   display: grid;
@@ -216,6 +237,105 @@ button {
   content: counter(assistant-list);
   font-size: 10px;
   font-weight: 700;
+}
+
+.code-shell {
+  max-width: 100%;
+  margin: 2px 0;
+  overflow: hidden;
+  border: 1px solid #ded6ca;
+  border-radius: 11px;
+  background: #fffdfa;
+  box-shadow: 0 8px 18px rgba(43, 34, 24, .05);
+}
+
+.code-shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  padding: 7px 9px 7px 12px;
+  border-bottom: 1px solid #e7dfd5;
+  background: #f6f1e9;
+}
+
+.code-shell-language {
+  overflow: hidden;
+  color: #776d62;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-copy-button {
+  flex: 0 0 auto;
+  border: 1px solid #d8cfc2;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #fffaf3;
+  color: #5f574f;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.code-copy-button:hover {
+  background: #eee7dc;
+}
+
+.code-copy-button:disabled {
+  cursor: default;
+  opacity: .72;
+}
+
+.message.assistant pre {
+  max-width: 100%;
+  margin: 0;
+  overflow-x: auto;
+  background: #fffdfa;
+  color: #28231e;
+  font: 12px/1.55 Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+}
+
+.message.assistant code {
+  font-family: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+}
+
+.message.assistant pre code {
+  display: block;
+  min-width: max-content;
+  padding: 12px 13px;
+  white-space: pre;
+}
+
+.code-token.comment {
+  color: #7a8a63;
+}
+
+.code-token.keyword {
+  color: #8b54b8;
+  font-weight: 650;
+}
+
+.code-token.string {
+  color: #0f7f74;
+}
+
+.code-token.number,
+.code-token.literal {
+  color: #b45f2a;
+}
+
+.code-token.builtin {
+  color: #1d6fb8;
+}
+
+.code-token.operator {
+  color: #8c7562;
 }
 
 .message-attachments {
@@ -436,6 +556,10 @@ button {
   .trace.thinking span::before {
     animation: none;
   }
+
+  .composer:has(.send-button:disabled)::after {
+    animation: none;
+  }
 }
 
 .composer-shell {
@@ -449,14 +573,41 @@ button {
 }
 
 .composer {
+  position: relative;
   display: grid;
   gap: 8px;
   min-height: 88px;
+  overflow: hidden;
   border: 1px solid #e5dfd6;
   border-radius: 16px;
   padding: 11px 12px 10px;
   background: #fff;
   box-shadow: 0 10px 30px rgba(40, 31, 21, .07);
+}
+
+.composer:has(.send-button:disabled)::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    transparent 28%,
+    rgba(18, 63, 61, .05) 42%,
+    rgba(18, 63, 61, .14) 50%,
+    rgba(18, 63, 61, .05) 58%,
+    transparent 72%,
+    transparent 100%
+  );
+  content: "";
+  pointer-events: none;
+  transform: translateX(-115%);
+  animation: fluid-composer-shimmer 1.5s ease-in-out infinite;
+}
+
+.composer > * {
+  position: relative;
+  z-index: 1;
 }
 
 .attachments {
@@ -536,15 +687,67 @@ textarea::placeholder {
 }
 
 .send-button {
-  background: #d99a88;
-  color: #fff;
-  font-size: 18px;
-  font-weight: 700;
+  position: relative;
+  overflow: hidden;
+  width: 34px;
+  height: 30px;
+  border: 1px solid #185b58;
+  border-radius: 9px;
+  background: #123f3d;
+  color: #d9fff8;
+  box-shadow: none;
+  transition: background .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.send-button:hover {
+  background: #0f5652;
+}
+
+.send-button:active {
+  transform: translateY(1px);
+}
+
+.send-button:focus,
+.send-button:focus-visible {
+  outline: 0;
+}
+
+.send-button svg {
+  position: relative;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  transform: translateX(1px);
+}
+
+.send-button path:first-child {
+  fill: currentColor;
+}
+
+.send-button path:last-child {
+  fill: none;
+  stroke: #123f3d;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .send-button:disabled {
   cursor: wait;
-  opacity: .58;
+  opacity: 1;
+  transform: none;
+  box-shadow: none;
+}
+
+@keyframes fluid-composer-shimmer {
+  0% {
+    transform: translateX(-115%);
+  }
+
+  55%,
+  100% {
+    transform: translateX(115%);
+  }
 }
 
 .disclaimer {
