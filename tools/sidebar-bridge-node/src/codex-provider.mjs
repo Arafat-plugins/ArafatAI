@@ -38,23 +38,59 @@ function compactForm(form) {
       name: field.name || '',
       type: field.type || '',
       placeholder: shorten(field.placeholder, 120),
+      required: Boolean(field.required),
+      accept: shorten(field.accept, 120),
     })),
+  };
+}
+
+function compactLayout(layout) {
+  if (!isPlainObject(layout)) return {};
+  return {
+    viewport_width: Number(layout.viewport_width || 0),
+    viewport_height: Number(layout.viewport_height || 0),
+    document_width: Number(layout.document_width || 0),
+    document_height: Number(layout.document_height || 0),
+    horizontal_overflow: Boolean(layout.horizontal_overflow),
+  };
+}
+
+function compactImage(image) {
+  if (!isPlainObject(image)) return null;
+  const box = isPlainObject(image.box) ? image.box : {};
+  return {
+    ref: image.ref || '',
+    selector: shorten(image.selector, 180),
+    alt: shorten(image.alt, 160),
+    src: shorten(image.src, 260),
+    natural_width: Number(image.natural_width || 0),
+    natural_height: Number(image.natural_height || 0),
+    box: {
+      x: Number(box.x || 0),
+      y: Number(box.y || 0),
+      width: Number(box.width || 0),
+      height: Number(box.height || 0),
+    },
+    object_fit: image.object_fit || '',
   };
 }
 
 export function compactPage(page = {}) {
   const clickables = Array.isArray(page.clickables) ? page.clickables : [];
   const forms = Array.isArray(page.forms) ? page.forms : [];
+  const images = Array.isArray(page.images) ? page.images : [];
   const dialogs = Array.isArray(page.dialogs) ? page.dialogs : [];
 
   return {
     url: page.url || '',
     title: page.title || '',
     viewport: isPlainObject(page.viewport) ? page.viewport : {},
+    layout: compactLayout(page.layout),
     accessibility_tree: shorten(page.accessibility_tree, 6000),
     visible_text: shorten(page.visible_text, 1200),
     clickables: clickables.slice(0, 80).map(compactClickable).filter(Boolean),
     forms: forms.slice(0, 10).map(compactForm).filter(Boolean),
+    images: images.slice(0, 40).map(compactImage).filter(Boolean),
     dialogs: dialogs.slice(0, 8).filter(isPlainObject).map((dialog) => ({
       selector: shorten(dialog.selector, 180),
       text: shorten(dialog.text, 400),
@@ -163,6 +199,8 @@ export function buildExtensionPrompt(body = {}) {
     'Opening admin pages, checking plugin status, searching settings, observing pages, and clicking navigation/sidebar/menu items are safe steps even when the overall task mentions reset, delete, or another risky goal.',
     'Any browser action must be proposed only; the extension executes it and sends back observations.',
     'Keep the reply concise and in the same language style as the user.',
+    'For display/responsive issue checks, reason from page.layout, page.images, visible_text, clickables, forms, dialogs, and screenshots. horizontal_overflow=true, oversized image boxes, blank checkbox/radio labels, required file fields, visible loading/error text, and dialogs are concrete evidence.',
+    'When the user asks whether a visual/display fix is complete, answer from current snapshot evidence only. Do not claim fixed unless the current snapshot has no relevant issue signal and say what evidence was checked.',
     'When uploaded images exist, read them in the given order. If the user says first/second/third image, map that to attachment order 1/2/3.',
     'When a current-tab screenshot exists, use it as visual evidence together with the DOM snapshot. Prefer visible screenshot evidence when DOM text/clickables miss a visually obvious target.',
   ];
@@ -268,7 +306,7 @@ export async function findCodexCommand(configured = '') {
     if (await fileExists(candidate)) return candidate;
   }
 
-  return await findOnPath('codex') || await findVsCodeCodex();
+  return await findVsCodeCodex() || await findOnPath('codex');
 }
 
 export async function reasonWithCodex(body = {}, config = {}) {
@@ -283,7 +321,7 @@ export async function reasonWithCodex(body = {}, config = {}) {
   }
 
   const cwd = path.resolve(config.cwd || process.cwd());
-  const timeoutMs = Math.max(1000, Number(config.timeoutSeconds || 120) * 1000);
+  const timeoutMs = Math.max(1000, Number(config.timeoutSeconds || 45) * 1000);
   const prompt = buildExtensionPrompt(body);
   const imagePaths = compactAttachments(body.attachments)
     .map((attachment) => attachment.path)
@@ -358,11 +396,17 @@ export async function reasonWithCodex(body = {}, config = {}) {
 
 function runCodexProcess(command, args, input, cwd, timeoutMs) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd,
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    let child;
+    try {
+      child = spawn(command, args, {
+        cwd,
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      resolve({ code: 1, stdout: '', stderr: error?.message || String(error), timedOut: false });
+      return;
+    }
 
     let stdout = '';
     let stderr = '';

@@ -6,7 +6,7 @@
   "type": "module",
   "main": "src/server.mjs",
   "scripts": {
-    "start": "node src/server.mjs --port 8792 --token arafatai-local-token --provider codex --timeout 120",
+    "start": "node src/server.mjs --port 8792 --token arafatai-local-token --provider codex --timeout 45",
     "test": "node --test test"
   }
 }

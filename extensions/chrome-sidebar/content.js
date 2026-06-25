@@ -86,6 +86,28 @@ function box(el) {
   };
 }
 
+function pageLayout() {
+  const doc = document.documentElement;
+  const body = document.body;
+  const documentWidth = Math.max(doc ? doc.scrollWidth : 0, body ? body.scrollWidth : 0, window.innerWidth);
+  const documentHeight = Math.max(doc ? doc.scrollHeight : 0, body ? body.scrollHeight : 0, window.innerHeight);
+
+  return {
+    viewport_width: window.innerWidth,
+    viewport_height: window.innerHeight,
+    document_width: documentWidth,
+    document_height: documentHeight,
+    horizontal_overflow: documentWidth > window.innerWidth + 2,
+  };
+}
+
+function imageSource(el) {
+  const src = el.currentSrc || el.src || '';
+  if (!src) return '';
+  if (src.startsWith('data:')) return src.slice(0, 120);
+  return src.slice(0, 300);
+}
+
 function clickableElements() {
   return Array.from(document.querySelectorAll('a,button,input,textarea,select,label,summary,[role="button"],[onclick],[contenteditable="true"]'))
     .filter(isVisible);
@@ -272,8 +294,24 @@ function snapshotPage() {
           name: field.getAttribute('name') || '',
           type: field.getAttribute('type') || '',
           placeholder: field.getAttribute('placeholder') || '',
+          required: Boolean(field.required || field.getAttribute('aria-required') === 'true'),
+          accept: field.getAttribute('accept') || '',
           value_length: field.value ? field.value.length : 0,
         })),
+    }));
+
+  const images = Array.from(document.querySelectorAll('img'))
+    .filter(isVisible)
+    .slice(0, 80)
+    .map((img) => ({
+      selector: simpleSelector(img),
+      ref: elementRef(img),
+      alt: normalizeText(img.getAttribute('alt') || img.getAttribute('aria-label') || ''),
+      src: imageSource(img),
+      natural_width: Number(img.naturalWidth || 0),
+      natural_height: Number(img.naturalHeight || 0),
+      box: box(img),
+      object_fit: getComputedStyle(img).objectFit || '',
     }));
 
   const dialogs = Array.from(document.querySelectorAll('dialog[open],[role="dialog"],.modal.show,.modal[style*="display: block"]'))
@@ -289,10 +327,12 @@ function snapshotPage() {
     url: location.href,
     title: document.title,
     viewport: { width: window.innerWidth, height: window.innerHeight },
+    layout: pageLayout(),
     accessibility_tree: accessibilityTree().slice(0, 12000),
     visible_text: normalizeText(document.body ? document.body.innerText : '').slice(0, 5000),
     clickables,
     forms,
+    images,
     dialogs,
     captured_at: new Date().toISOString(),
   };

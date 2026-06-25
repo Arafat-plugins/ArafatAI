@@ -9,7 +9,7 @@ path for running the Chrome sidebar without installing Python packages.
 From the repo root:
 
 ```powershell
-node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 120
+node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 45
 ```
 
 Or double-click:

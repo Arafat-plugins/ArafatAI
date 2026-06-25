@@ -175,6 +175,9 @@ export function buildLocalAgentReply(body = {}, { allowQuestionFallback = true }
 
   if (!allowQuestionFallback) return null;
 
+  const issueFallback = issueImplementationFallbackReply(goal, page);
+  if (issueFallback) return issueFallback;
+
   return dump({
     reply: 'I need one more detail before acting.',
     reasoning_summary: [
@@ -236,9 +239,126 @@ function isCaptchaPage(page = {}) {
 
 function readOnlyReply(goal, page) {
   return metaQuestionReply(goal, page)
+    || capabilityReply(goal, page)
+    || issueCheckReply(goal, page)
     || themeListReply(goal, page)
     || (!hasExplicitActionIntent(goal) ? pricingReply(goal, page) : null)
+    || pageSummaryReply(goal, page)
     || (!hasExplicitActionIntent(goal) ? currentSiteReply(goal, page) : null);
+}
+
+function capabilityReply(goal, page) {
+  const lower = goal.toLowerCase();
+  const asks = lower.includes('what can you do')
+    || lower.includes('how can you help')
+    || lower.includes('capability')
+    || lower.includes('capabilities')
+    || lower.includes('fluid ki kore')
+    || lower.includes('tumi ki korte paro')
+    || lower.includes('tumi ki ki korte paro')
+    || lower.includes('tomake diye ki kora jay')
+    || lower.includes('tomake diye ki korte parbo');
+  if (!asks) return null;
+
+  return dump({
+    reply: [
+      'Ami FLUID sidebar. Current tab snapshot pore ami ei kajgula korte pari:',
+      '- current page/URL info and visible content summarize',
+      '- safe navigation, search, click, type, press, wait, and observe',
+      '- multi-step browser flow continue kora with progress trace',
+      '- risky/destructive kajer age confirmation chawa',
+      'Complex code/site diagnosis hole same JSON contract diye AI planner e pathai.',
+    ].join('\n'),
+    reasoning_summary: [
+      pageEvidence(page),
+      'The user asked about sidebar capabilities, so no browser action is needed.',
+    ],
+    questions: [],
+    actions: [],
+    done: true,
+    needs_approval: false,
+  });
+}
+
+function issueCheckReply(goal, page) {
+  if (!isPageIssueCheckGoal(goal) || asksImplementationWork(goal)) return null;
+  if (navigationPlan(goal)) return null;
+
+  const url = String(page.url || '').trim();
+  if (!url) {
+    return dump({
+      reply: 'Current tab er inspectable URL snapshot e paini.',
+      reasoning_summary: ['The user asked for an issue check, but no page snapshot URL was supplied.'],
+      questions: ['Which tab or URL should I inspect?'],
+      actions: [],
+      done: false,
+      needs_approval: true,
+    });
+  }
+
+  const lines = ['Quick issue check from current snapshot:'];
+  const title = normalize(String(page.title || ''));
+  const parsed = parseUrl(url);
+  lines.push(`- Site: ${parsed?.host || url}`);
+  if (title) lines.push(`- Title: ${title}`);
+
+  const layout = pageLayoutInfo(page);
+  if (layout.viewportWidth && layout.documentWidth) {
+    lines.push(`- Layout: viewport ${layout.viewportWidth}px, document ${layout.documentWidth}px`);
+  }
+
+  const signals = pageIssueSignals(goal, page);
+  if (signals.length) {
+    lines.push('- Snapshot issue signals:');
+    for (const signal of signals.slice(0, 8)) lines.push(`  - ${signal}`);
+  } else {
+    lines.push('- No obvious snapshot-level issue signal found.');
+    lines.push('- This is not a full visual proof; screenshot/mobile rendering can still reveal styling issues.');
+  }
+
+  return dump({
+    reply: lines.join('\n'),
+    reasoning_summary: [
+      pageEvidence(page),
+      'The issue check used current snapshot evidence: layout, images, controls, forms, dialogs, and visible text.',
+      signals.length
+        ? `Found ${signals.length} possible issue signal(s); no browser action is needed for this check.`
+        : 'No obvious issue signal was found in the supplied snapshot; no browser action is needed for this check.',
+    ],
+    questions: [],
+    actions: [],
+    done: true,
+    needs_approval: false,
+  });
+}
+
+function issueImplementationFallbackReply(goal, page) {
+  if (!isIssueTopicGoal(goal) || !asksImplementationWork(goal)) return null;
+
+  const signals = pageIssueSignals(goal, page);
+  const lines = [
+    'Eta issue-fix/code request mone hocche, but current browser snapshot alone diye safe code fix decide kora jabe na.',
+  ];
+
+  if (signals.length) {
+    lines.push('Snapshot evidence:');
+    for (const signal of signals.slice(0, 6)) lines.push(`- ${signal}`);
+  }
+
+  return dump({
+    reply: lines.join('\n'),
+    reasoning_summary: [
+      pageEvidence(page),
+      signals.length
+        ? `Found ${signals.length} visible issue signal(s), but no code/theme/plugin context was supplied.`
+        : 'No code/theme/plugin context was supplied for this issue-fix request.',
+      'A safe fix needs the relevant code surface, not only the rendered page snapshot.',
+    ],
+    questions: ['Relevant theme/plugin file, repo, or admin page ta open/provide korben?'],
+    actions: [],
+    done: false,
+    needs_approval: true,
+  });
 }
 
 function metaQuestionReply(goal, page) {
@@ -255,6 +375,81 @@ function metaQuestionReply(goal, page) {
       pageEvidence(page),
       'The user asked how the sidebar answered quickly, so this is a conversational explanation.',
       'No browser action is needed for this question.',
+    ],
+    questions: [],
+    actions: [],
+    done: true,
+    needs_approval: false,
+  });
+}
+
+function pageSummaryReply(goal, page) {
+  const lower = goal.toLowerCase();
+  const asksSummary = lower.includes('summarize this page')
+    || lower.includes('summarise this page')
+    || lower.includes('summary of this page')
+    || lower.includes('describe this page')
+    || lower.includes('what is on this page')
+    || lower.includes("what's on this page")
+    || lower.includes('page e ki ache')
+    || lower.includes('page a ki ache')
+    || lower.includes('ei page e ki ache')
+    || lower.includes('ei page a ki ache')
+    || lower.includes('current page e ki ache')
+    || lower.includes('current page a ki ache')
+    || lower.includes('ekhane ki ache')
+    || lower.includes('page ta dekhe bolo')
+    || lower.includes('page ta check kore bolo')
+    || lower.includes('inspect current page');
+  if (!asksSummary) return null;
+
+  // Leave bug diagnosis to the AI provider; the local planner only summarizes visible snapshot facts.
+  if (/\b(issue|problem|bug|error|fix|fixed|responsive|broken|validation|missing)\b/i.test(lower)) return null;
+
+  const url = String(page.url || '').trim();
+  if (!url) {
+    return dump({
+      reply: 'Current tab er inspectable URL snapshot e paini.',
+      reasoning_summary: ['The user asked for a page summary, but no page snapshot URL was supplied.'],
+      questions: ['Which tab or URL should I inspect?'],
+      actions: [],
+      done: false,
+      needs_approval: true,
+    });
+  }
+
+  const lines = ['Current page snapshot summary:'];
+  const title = normalize(String(page.title || ''));
+  const parsed = parseUrl(url);
+  lines.push(`- Site: ${parsed?.host || url}`);
+  if (title) lines.push(`- Title: ${title}`);
+
+  const viewport = isPlainObject(page.viewport) ? page.viewport : {};
+  if (viewport.width && viewport.height) {
+    lines.push(`- Viewport: ${viewport.width}x${viewport.height}`);
+  }
+
+  const headings = pageHeadings(page).slice(0, 5);
+  if (headings.length) lines.push(`- Headings: ${headings.join(' | ')}`);
+
+  const visiblePreview = textPreview(page.visible_text, 240);
+  if (visiblePreview) lines.push(`- Visible text: ${visiblePreview}`);
+
+  const controls = clickableLabels(page).slice(0, 6);
+  if (controls.length) lines.push(`- Visible controls: ${controls.join(' | ')}`);
+
+  const forms = Array.isArray(page.forms) ? page.forms : [];
+  if (forms.length) {
+    const fieldCount = forms.reduce((total, form) => total + (Array.isArray(form?.fields) ? form.fields.length : 0), 0);
+    lines.push(`- Forms: ${forms.length} form(s), ${fieldCount} visible field(s)`);
+  }
+
+  return dump({
+    reply: lines.join('\n'),
+    reasoning_summary: [
+      pageEvidence(page),
+      'The answer uses only the current tab snapshot: URL, title, visible text, controls, and forms.',
+      'This is read-only, so no browser action is needed.',
     ],
     questions: [],
     actions: [],
@@ -719,6 +914,9 @@ function youtubePlan(goal, page) {
 
 function searchPlan(goal) {
   const lower = goal.toLowerCase();
+  const issueContext = /\b(issue|problem|bug|error|fix|responsive|validation|required|missing|field|upload)\b/i.test(lower);
+  if (issueContext && !/\b(search|google|khoj)\b/i.test(lower)) return null;
+
   const wantsSearch = lower.includes('search') || lower.includes('google') || lower.includes('khoj');
   const wantsImage = lower.includes('image') || lower.includes('images') || lower.includes('img');
   if (!wantsSearch && !wantsImage) return null;
@@ -944,6 +1142,182 @@ function clickPlan(goal, page) {
 
 function hasExplicitActionIntent(goal) {
   return /\b(click|open|press|tap|tab|jao|go|goto|navigate|play|watch)\b/i.test(goal);
+}
+
+function isPageIssueCheckGoal(goal) {
+  const lower = goal.toLowerCase();
+  const asksCheck = /\b(check|inspect|verify|review|test|look|dekho|dekhaw|dekhao|dekhon|dekhe|bolo)\b/i.test(lower)
+    || lower.includes('hoise naki')
+    || lower.includes('ache naki')
+    || lower.includes('thik ache')
+    || lower.includes('thik hoise')
+    || lower.includes('fixed')
+    || lower.includes('resolved');
+  return asksCheck && isIssueTopicGoal(goal);
+}
+
+function isIssueTopicGoal(goal) {
+  return /\b(issue|problem|bug|error|responsive|mobile|display|layout|overflow|image|logo|validation|required|missing|field|checkbox|blank|loading|spinner|card|upload)\b/i.test(goal);
+}
+
+function asksImplementationWork(goal) {
+  const lower = goal.toLowerCase();
+  if (
+    lower.includes('fix hoise')
+    || lower.includes('fixed')
+    || lower.includes('resolved')
+    || lower.includes('thik hoise')
+    || lower.includes('hoise naki')
+  ) {
+    return false;
+  }
+
+  return /\b(implement|implementation|code|css|js|javascript|php|snippet|write|add|change|modify|solve|repair)\b/i.test(lower)
+    || /\bfix\s+(koro|kor|kore|dao|daw|now|it|this)\b/i.test(lower)
+    || /\b(thik|solve)\s+(koro|kor|kore|dao|daw)\b/i.test(lower);
+}
+
+function pageIssueSignals(goal, page) {
+  const signals = [];
+  const lowerGoal = goal.toLowerCase();
+  const layout = pageLayoutInfo(page);
+  const viewportWidth = layout.viewportWidth || Number(page.viewport?.width || 0);
+
+  if (layout.horizontalOverflow) {
+    signals.push(`Horizontal overflow detected: document width ${layout.documentWidth}px exceeds viewport ${layout.viewportWidth}px.`);
+  }
+
+  const images = Array.isArray(page.images) ? page.images : [];
+  const imageSignals = [];
+  for (const image of images) {
+    if (!isPlainObject(image)) continue;
+    const box = isPlainObject(image.box) ? image.box : {};
+    const width = Number(box.width || 0);
+    const height = Number(box.height || 0);
+    const x = Number(box.x || 0);
+    const label = normalize(String(image.alt || image.selector || image.src || 'image')).slice(0, 80) || 'image';
+    if (viewportWidth && width > viewportWidth + 2) {
+      imageSignals.push(`${label} image is wider than viewport (${width}px > ${viewportWidth}px).`);
+    } else if (viewportWidth && width > viewportWidth * 0.92 && (x < -2 || x + width > viewportWidth + 2)) {
+      imageSignals.push(`${label} image appears clipped or overflowing the viewport.`);
+    } else if ((lowerGoal.includes('logo') || lowerGoal.includes('image')) && (!width || !height)) {
+      imageSignals.push(`${label} image has no measurable displayed size in the snapshot.`);
+    }
+  }
+  signals.push(...imageSignals.slice(0, 4));
+
+  if ((lowerGoal.includes('image') || lowerGoal.includes('logo')) && !images.length) {
+    signals.push('No visible image metadata was captured on the current page.');
+  }
+
+  const blankChoices = blankChoiceControls(page);
+  if (blankChoices > 0 && /\b(checkbox|radio|label|text|blank|missing|certification|vehicle)\b/i.test(lowerGoal)) {
+    signals.push(`${blankChoices} visible checkbox/radio control(s) have no captured label text.`);
+  }
+
+  const requiredFiles = requiredFileFields(page);
+  if (requiredFiles > 0 && /\b(image|file|upload|required|validation)\b/i.test(lowerGoal)) {
+    signals.push(`${requiredFiles} required file/image upload field(s) are visible in the form snapshot.`);
+  }
+
+  const text = normalize(String(page.visible_text || '')).toLowerCase();
+  const textSignals = [
+    ['required', 'Visible page text includes a required-field message.'],
+    ['error', 'Visible page text includes an error message.'],
+    ['loading', 'Visible page text includes loading text.'],
+    ['spinner', 'Visible page text includes spinner/loading text.'],
+  ];
+  for (const [needle, message] of textSignals) {
+    if (text.includes(needle)) signals.push(message);
+  }
+
+  const dialogs = Array.isArray(page.dialogs) ? page.dialogs : [];
+  if (dialogs.length) signals.push(`${dialogs.length} visible dialog/modal element(s) are present.`);
+
+  return Array.from(new Set(signals));
+}
+
+function pageLayoutInfo(page) {
+  const layout = isPlainObject(page.layout) ? page.layout : {};
+  const viewport = isPlainObject(page.viewport) ? page.viewport : {};
+  const viewportWidth = Number(layout.viewport_width || viewport.width || 0);
+  const documentWidth = Number(layout.document_width || 0);
+  return {
+    viewportWidth,
+    viewportHeight: Number(layout.viewport_height || viewport.height || 0),
+    documentWidth,
+    documentHeight: Number(layout.document_height || 0),
+    horizontalOverflow: Boolean(layout.horizontal_overflow || (viewportWidth && documentWidth > viewportWidth + 2)),
+  };
+}
+
+function blankChoiceControls(page) {
+  const clickables = Array.isArray(page.clickables) ? page.clickables : [];
+  let count = 0;
+  for (const item of clickables) {
+    if (!isPlainObject(item)) continue;
+    const type = String(item.type || '').toLowerCase();
+    const role = String(item.role || '').toLowerCase();
+    const text = normalize(String(item.text || item.aria_label || ''));
+    if ((type === 'checkbox' || type === 'radio' || role === 'checkbox' || role === 'radio') && !text) count += 1;
+  }
+  return count;
+}
+
+function requiredFileFields(page) {
+  const forms = Array.isArray(page.forms) ? page.forms : [];
+  let count = 0;
+  for (const form of forms) {
+    if (!isPlainObject(form)) continue;
+    const fields = Array.isArray(form.fields) ? form.fields : [];
+    for (const field of fields) {
+      if (!isPlainObject(field)) continue;
+      const type = String(field.type || '').toLowerCase();
+      const accept = String(field.accept || '').toLowerCase();
+      if (field.required && (type === 'file' || accept.includes('image'))) count += 1;
+    }
+  }
+  return count;
+}
+
+function pageHeadings(page) {
+  const tree = String(page.accessibility_tree || '');
+  const headings = [];
+  const seen = new Set();
+  for (const line of tree.split('\n')) {
+    const match = /^heading\s+"([^"]+)"/i.exec(line.trim());
+    if (!match) continue;
+    const text = normalize(match[1]);
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    headings.push(text.length <= 90 ? text : `${text.slice(0, 87)}...`);
+  }
+  return headings;
+}
+
+function clickableLabels(page) {
+  const clickables = Array.isArray(page.clickables) ? page.clickables : [];
+  const labels = [];
+  const seen = new Set();
+  for (const item of clickables) {
+    if (!isPlainObject(item)) continue;
+    const text = normalize(String(item.text || item.aria_label || item.placeholder || ''));
+    if (!text || text.length > 90) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(text);
+  }
+  return labels;
+}
+
+function textPreview(value, limit = 240) {
+  const text = normalize(String(value || ''));
+  if (!text) return '';
+  if (text.length <= limit) return text;
+  const clipped = text.slice(0, limit).replace(/\s+\S*$/, '').trim();
+  return `${clipped || text.slice(0, limit)}...`;
 }
 
 function isWpResetGoal(text) {

@@ -172,6 +172,160 @@ test('answers current site directly', () => {
   assert.match(data.reply, /https:\/\/directorist\.com\/pricing\//);
 });
 
+test('answers sidebar capability question directly', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'tumi ki ki korte paro',
+    page: {
+      url: 'https://directorist.com/pricing/',
+      title: 'Directorist Pricing',
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.done, true);
+  assert.equal(data.actions.length, 0);
+  assert.match(data.reply, /FLUID sidebar/);
+  assert.match(data.reply, /safe navigation/);
+});
+
+test('summarizes the current page from the supplied snapshot', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ei page e ki ache bolo',
+    page: {
+      url: 'https://directorist.com/pricing/',
+      title: 'Directorist Pricing - Choose the Best Plan',
+      viewport: { width: 390, height: 844 },
+      accessibility_tree: [
+        'heading "Pricing Plans" [ref_1] selector="h1"',
+        'heading "Agency" [ref_2] selector="h2"',
+      ].join('\n'),
+      visible_text: 'Pricing Plans Annual Lifetime Starter Agency Pro Save 20% Buy Now Documentation',
+      clickables: [
+        { ref: 'ref_10', text: 'Buy Now' },
+        { ref: 'ref_11', text: 'Documentation' },
+      ],
+      forms: [
+        { selector: 'form.search', fields: [{ ref: 'ref_20', name: 's', type: 'search' }] },
+      ],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.done, true);
+  assert.equal(data.actions.length, 0);
+  assert.match(data.reply, /Current page snapshot summary/);
+  assert.match(data.reply, /directorist\.com/);
+  assert.match(data.reply, /Pricing Plans \| Agency/);
+  assert.match(data.reply, /Buy Now \| Documentation/);
+  assert.match(data.reply, /1 form\(s\), 1 visible field\(s\)/);
+});
+
+test('answers responsive issue checks from snapshot signals', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'ei page check dao responsive issue fix hoise naki',
+    page: {
+      url: 'https://example.test/directory/item/',
+      title: 'Directory Item',
+      viewport: { width: 390, height: 844 },
+      layout: {
+        viewport_width: 390,
+        viewport_height: 844,
+        document_width: 436,
+        document_height: 1600,
+        horizontal_overflow: true,
+      },
+      visible_text: 'Author Information Logo Contact',
+      images: [
+        {
+          alt: 'Author logo',
+          selector: 'img.logo',
+          src: 'https://example.test/logo.png',
+          natural_width: 640,
+          natural_height: 320,
+          box: { x: 0, y: 220, width: 430, height: 180 },
+        },
+      ],
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.done, true);
+  assert.equal(data.actions.length, 0);
+  assert.match(data.reply, /Quick issue check/);
+  assert.match(data.reply, /Horizontal overflow detected/);
+  assert.match(data.reply, /Author logo image is wider than viewport/);
+});
+
+test('keeps implementation issue requests on the AI provider path', () => {
+  const reply = buildLocalAgentReply({
+    mode: 'agent_task',
+    goal: 'ei page responsive issue fix koro css code dao',
+    page: {
+      url: 'https://example.test/directory/item/',
+      title: 'Directory Item',
+      visible_text: 'Author Information Logo Contact',
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(reply, null);
+});
+
+test('gives useful local fallback for implementation issue requests', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'image required error fix koro',
+    page: {
+      url: 'https://example.test/add-listing/',
+      title: 'Add Listing',
+      visible_text: 'Listing image This field is required',
+      forms: [
+        {
+          selector: 'form',
+          fields: [
+            { ref: 'ref_20', selector: 'input[type="file"]', name: 'listing_image', type: 'file', required: true, accept: 'image/*' },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.equal(data.done, false);
+  assert.equal(data.actions.length, 0);
+  assert.match(data.reply, /issue-fix\/code request/);
+  assert.match(data.reply, /required file\/image upload field/);
+  assert.match(data.questions[0], /theme\/plugin file/);
+});
+
+test('does not misroute image validation bugs to image search', () => {
+  const reply = buildLocalAgentReply({
+    mode: 'agent_task',
+    goal: 'image required error fix koro',
+    page: {
+      url: 'https://example.test/add-listing/',
+      title: 'Add Listing',
+      visible_text: 'Listing image This field is required',
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(reply, null);
+});
+
+test('navigates before checking a different URL issue', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'open example.com and check responsive issue',
+    page: {
+      url: 'https://current.test/',
+      title: 'Current',
+      visible_text: 'Current page',
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.equal(data.done, false);
+  assert.equal(data.actions[0].type, 'navigate');
+  assert.equal(data.actions[0].target, 'https://example.com');
+});
+
 test('opens theme tab before answering theme list from pricing page', () => {
   const data = parseReply({
     mode: 'agent_task',

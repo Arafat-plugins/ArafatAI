@@ -12,8 +12,8 @@ const BRIDGE_URL = 'http://127.0.0.1:8792';
 const BRIDGE_TOKEN = 'arafatai-local-token';
 const MAX_AGENT_STEPS = 8;
 const PLAN_POLL_INTERVAL_MS = 1500;
-const MAX_PLAN_POLLS = 40;
-const MAX_CODE_PLAN_POLLS = 80;
+const MAX_PLAN_POLLS = 34;
+const MAX_CODE_PLAN_POLLS = 56;
 const POST_ACTION_SETTLE_MS = 900;
 const NAVIGATION_SETTLE_TIMEOUT_MS = 7000;
 const MANUAL_VERIFICATION_TIMEOUT_MS = 180000;
@@ -1256,6 +1256,7 @@ async function planTask(taskId, goal, page, taskState, attachments = [], maxPoll
       conversation_memory: conversationMemoryPayload(),
       task_state: taskState,
       approval_policy: 'auto-safe-actions',
+      force_local: true,
     });
     const agentReply = parseAgentReply(fallback.text || '');
     if (waitingTrace) setTraceState(waitingTrace, 'done');

@@ -115,3 +115,47 @@ test('Codex prompt avoids repeated questions after developer confirmation', () =
   assert.match(prompt, /For WordPress WP Reset tasks/);
   assert.match(prompt, /type the required keyword/);
 });
+
+test('Codex prompt includes responsive layout and image evidence', () => {
+  const prompt = buildExtensionPrompt({
+    mode: 'agent_task',
+    goal: 'check responsive logo issue',
+    page: {
+      url: 'https://example.test/directory/item/',
+      title: 'Directory Item',
+      layout: {
+        viewport_width: 390,
+        viewport_height: 844,
+        document_width: 436,
+        document_height: 1600,
+        horizontal_overflow: true,
+      },
+      images: [
+        {
+          ref: 'ref_7',
+          selector: 'img.logo',
+          alt: 'Author logo',
+          src: 'https://example.test/logo.png',
+          natural_width: 640,
+          natural_height: 320,
+          box: { x: 0, y: 200, width: 430, height: 180 },
+        },
+      ],
+      forms: [
+        {
+          selector: 'form',
+          fields: [
+            { ref: 'ref_20', selector: 'input[type="file"]', name: 'image', type: 'file', required: true, accept: 'image/*' },
+          ],
+        },
+      ],
+    },
+  });
+
+  assert.match(prompt, /display\/responsive issue checks/);
+  assert.match(prompt, /horizontal_overflow/);
+  assert.match(prompt, /Author logo/);
+  assert.match(prompt, /logo\.png/);
+  assert.match(prompt, /"required": true/);
+  assert.match(prompt, /image\/\*/);
+});

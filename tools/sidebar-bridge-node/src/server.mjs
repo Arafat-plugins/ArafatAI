@@ -7,6 +7,7 @@ import { saveTaskAttachments } from './attachment-store.mjs';
 import { TaskStore } from './task-store.mjs';
 
 export const DEFAULT_TOKEN = 'arafatai-local-token';
+export const DEFAULT_TIMEOUT_SECONDS = 45;
 
 function parseArgs(argv = process.argv.slice(2)) {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -17,7 +18,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     cwd: repoRoot,
     provider: 'codex',
     codexPath: '',
-    timeoutSeconds: 120,
+    timeoutSeconds: DEFAULT_TIMEOUT_SECONDS,
     allowLocalFallback: false,
   };
 
@@ -61,7 +62,7 @@ export function createBridgeServer(config = {}) {
     cwd: path.resolve(config.cwd || process.cwd()),
     provider: config.provider || 'codex',
     codexPath: config.codexPath || '',
-    timeoutSeconds: Number(config.timeoutSeconds || 120),
+    timeoutSeconds: Number(config.timeoutSeconds || DEFAULT_TIMEOUT_SECONDS),
     allowLocalFallback: Boolean(config.allowLocalFallback),
   };
   const tasks = new TaskStore(path.join(finalConfig.cwd, 'runs', 'bridge-tasks'));
@@ -160,6 +161,7 @@ export function createBridgeServer(config = {}) {
         ok: true,
         service: 'FLUID local Node bridge',
         provider: finalConfig.provider,
+        timeout_seconds: finalConfig.timeoutSeconds,
         routes: [
           '/health',
           '/reason',

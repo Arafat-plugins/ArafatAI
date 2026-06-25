@@ -5,7 +5,9 @@ export function createReasoner(config = {}) {
   const provider = config.provider || 'codex';
 
   return async function reason(body = {}) {
-    if (provider === 'local') return localReason(body);
+    if (provider === 'local' || body.force_local === true || body.provider === 'local') {
+      return localReason(body);
+    }
 
     const localDirect = buildLocalAgentReply(body, { allowQuestionFallback: false });
     if (localDirect) {
