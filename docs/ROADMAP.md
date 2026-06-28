@@ -51,3 +51,10 @@
 - AI runs tests.
 - AI writes PR summary.
 - Human reviews and merges.
+
+First implementation slice:
+
+- `python -m arafatai propose-self-improvement` creates a proposal artifact.
+- The artifact includes an eval case, test checklist, branch name, PR summary,
+  and hard `auto_merge_allowed: false` gate.
+- Code changes still happen only after the proposal is reviewed.

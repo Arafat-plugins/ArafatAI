@@ -2,14 +2,24 @@
   box-sizing: border-box;
 }
 
+:root {
+  --fluid-panel-max-width: 440px;
+}
+
 html,
 body {
   height: 100%;
 }
 
+html {
+  background: #f0ece5;
+}
+
 body {
+  width: min(100vw, var(--fluid-panel-max-width));
   min-width: 320px;
-  margin: 0;
+  max-width: var(--fluid-panel-max-width);
+  margin: 0 auto;
   color: #221f1a;
   background: #faf8f4;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -479,8 +489,63 @@ button {
   color: #537856;
 }
 
+.steps-panel.warn .steps-status {
+  color: #9a5a45;
+}
+
 .steps-panel.error .steps-status {
   color: #a04437;
+}
+
+.task-overview {
+  align-self: stretch;
+  display: grid;
+  gap: 7px;
+  padding: 10px 11px;
+  border: 1px solid #e8ded3;
+  border-radius: 10px;
+  background: #fffdfa;
+  color: #514a43;
+  box-shadow: 0 8px 22px rgba(35, 28, 20, .06);
+}
+
+.task-overview-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.task-overview-label {
+  color: #8a8176;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-transform: uppercase;
+}
+
+.task-overview-value {
+  min-width: 0;
+  color: #4f4740;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.task-overview-value.ok {
+  color: #537856;
+}
+
+.task-overview-value.warn {
+  color: #9a5a45;
+}
+
+.task-overview-value.error {
+  color: #a04437;
+}
+
+.task-overview-value.muted {
+  color: #7b7168;
 }
 
 .steps-list {
@@ -516,6 +581,11 @@ button {
 
 .trace.thinking span,
 .trace.thinking p {
+  color: #9a5a45;
+}
+
+.trace.warn span,
+.trace.warn p {
   color: #9a5a45;
 }
 
@@ -564,12 +634,13 @@ button {
 
 .composer-shell {
   position: fixed;
-  right: 0;
   bottom: 0;
-  left: 0;
+  left: 50%;
   z-index: 3;
+  width: min(100vw, var(--fluid-panel-max-width));
   padding: 12px 18px 12px;
   background: linear-gradient(to top, #faf8f4 84%, rgba(250, 248, 244, 0));
+  transform: translateX(-50%);
 }
 
 .composer {

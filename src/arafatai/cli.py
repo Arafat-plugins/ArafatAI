@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from arafatai.actions import BrowserAction
 from arafatai.agents.planner import PlannerAgent
 from arafatai.bridge.codex_cli import DEFAULT_TOKEN
+from arafatai.bridge.core_reasoner import reason_with_python_core
 from arafatai.bridge.server import BridgeServerConfig, run_server
 from arafatai.evals.scorecard import evaluate_browser_snapshot, load_snapshot
 from arafatai.memory.lesson_store import Lesson, LessonStore
+from arafatai.self_improvement import SelfImprovementInput, SelfImprovementProposalStore
 from arafatai.tools.browser_tool import BrowserTool
 
 
@@ -64,6 +67,36 @@ def build_parser() -> argparse.ArgumentParser:
     bridge.add_argument("--codex-cli", help="Path to codex executable. Also supports ARAFATAI_CODEX_CLI_PATH.")
     bridge.add_argument("--cwd", default=".", help="Working directory passed to Codex CLI.")
     bridge.add_argument("--timeout", type=int, default=45, help="Codex CLI timeout in seconds.")
+    bridge.add_argument(
+        "--provider",
+        choices=["codex", "core", "python-core"],
+        default="codex",
+        help="Planning provider for the Python HTTP bridge.",
+    )
+
+    sidebar_reason = subparsers.add_parser(
+        "sidebar-reason",
+        help="Read sidebar request JSON from stdin and return the Python-core provider response.",
+    )
+    sidebar_reason.add_argument("--input-file", help="Request JSON file. Defaults to stdin.")
+    sidebar_reason.add_argument("--pretty", action="store_true", help="Pretty-print provider response JSON.")
+
+    improve = subparsers.add_parser(
+        "propose-self-improvement",
+        aliases=["self-improve"],
+        help="Create a PR-gated self-improvement proposal from a real failure.",
+    )
+    improve.add_argument("--failure", required=True, help="Short description of the failure.")
+    improve.add_argument("--actual", required=True, help="What FLUID did or returned.")
+    improve.add_argument("--expected", required=True, help="What should happen next time.")
+    improve.add_argument("--area", default="general", help="Planner/tool area, e.g. directorist, wordpress, sidebar.")
+    improve.add_argument("--root-cause", default="", help="Known or suspected root cause.")
+    improve.add_argument("--evidence", default="", help="Evidence path, URL, or concise proof.")
+    improve.add_argument("--tag", action="append", default=[], help="Tag. Can be passed more than once.")
+    improve.add_argument("--test-command", action="append", default=[], help="Verification command. Can be repeated.")
+    improve.add_argument("--output-dir", default="runs/self-improvement", help="Proposal artifact directory.")
+    improve.add_argument("--lesson-file", default="memory/lessons.jsonl", help="Lesson memory JSONL file.")
+    improve.add_argument("--no-memory", action="store_true", help="Do not append a lesson memory row.")
 
     parser.add_argument(
         "--goal",
@@ -167,8 +200,54 @@ def main() -> None:
                 codex_path=args.codex_cli,
                 cwd=Path(args.cwd).resolve(),
                 timeout_seconds=args.timeout,
+                provider=args.provider,
             )
         )
+        return
+
+    if args.command == "sidebar-reason":
+        raw = Path(args.input_file).read_text(encoding="utf-8") if args.input_file else sys.stdin.read()
+        try:
+            parsed = json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "text": "",
+                        "source": "python-core",
+                        "error": f"invalid_json: {exc}",
+                    }
+                )
+            )
+            raise SystemExit(1) from exc
+        if not isinstance(parsed, dict):
+            print(json.dumps({"ok": False, "text": "", "source": "python-core", "error": "request_must_be_object"}))
+            raise SystemExit(1)
+        result = reason_with_python_core(parsed).to_dict()
+        print(json.dumps(result, ensure_ascii=False, indent=2 if args.pretty else None))
+        if not result["ok"]:
+            raise SystemExit(1)
+        return
+
+    if args.command in {"propose-self-improvement", "self-improve"}:
+        result = SelfImprovementProposalStore(
+            output_dir=args.output_dir,
+            lesson_file=args.lesson_file,
+        ).create(
+            SelfImprovementInput(
+                failure=args.failure,
+                actual=args.actual,
+                expected=args.expected,
+                area=args.area,
+                root_cause=args.root_cause,
+                evidence=args.evidence,
+                tags=args.tag,
+                test_commands=args.test_command or None,
+            ),
+            write_lesson=not args.no_memory,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
 

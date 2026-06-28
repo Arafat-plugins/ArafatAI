@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from arafatai.bridge.codex_cli import CodexCLIBridge, CodexCLIConfig, DEFAULT_TOKEN
+from arafatai.bridge.core_reasoner import reason_with_python_core
 from arafatai.bridge.task_store import TaskStore
 
 
@@ -22,10 +23,12 @@ class BridgeServerConfig:
     codex_path: str | None = None
     cwd: Path = Path.cwd()
     timeout_seconds: int = 45
+    provider: str = "codex"
 
 
 def make_handler(config: BridgeServerConfig):
-    bridge = CodexCLIBridge(
+    provider = config.provider if config.provider in {"codex", "core", "python-core"} else "codex"
+    codex_bridge = CodexCLIBridge(
         CodexCLIConfig(
             codex_path=config.codex_path,
             cwd=config.cwd,
@@ -35,6 +38,11 @@ def make_handler(config: BridgeServerConfig):
     tasks = TaskStore(config.cwd / "runs" / "bridge-tasks")
     planning_tasks: set[str] = set()
     planning_lock = Lock()
+
+    def reason(body: dict[str, object]):
+        if provider in {"core", "python-core"} or body.get("provider") in {"core", "python-core"}:
+            return reason_with_python_core(body)
+        return codex_bridge.reason(body)
 
     def build_plan_request(task_id: str, body: dict[str, object]) -> dict[str, object] | None:
         task = tasks.get(task_id)
@@ -63,7 +71,7 @@ def make_handler(config: BridgeServerConfig):
                 return
 
             task_state = request.get("task_state") if isinstance(request.get("task_state"), dict) else {}
-            result = bridge.reason(request)
+            result = reason(request)
             tasks.append_event(
                 task_id,
                 {
@@ -94,6 +102,7 @@ def make_handler(config: BridgeServerConfig):
                     {
                         "ok": True,
                         "service": "AQL AI local Codex bridge",
+                        "provider": provider,
                         "routes": [
                             "/health",
                             "/reason",
@@ -162,7 +171,7 @@ def make_handler(config: BridgeServerConfig):
                     return
 
                 task_state = request.get("task_state") if isinstance(request.get("task_state"), dict) else {}
-                result = bridge.reason(request)
+                result = reason(request)
                 tasks.append_event(
                     task_id,
                     {
@@ -225,7 +234,7 @@ def make_handler(config: BridgeServerConfig):
                 self._send_json(404, {"ok": False, "error": "not_found"})
                 return
 
-            result = bridge.reason(body)
+            result = reason(body)
             self._send_json(
                 200 if result.ok else 502,
                 {

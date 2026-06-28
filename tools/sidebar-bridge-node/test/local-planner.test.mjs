@@ -391,6 +391,20 @@ test('does not repeat generic risky approval question after explicit local reset
   assert.equal(data.actions[0].target, 'https://local.test/wp-admin/plugins.php?s=wp+reset&plugin_status=all');
 });
 
+test('does not route safety boundary wording to WP Reset', () => {
+  const data = parseReply({
+    mode: 'agent_task',
+    goal: 'Use this current WordPress site flow to investigate listing status. Do only safe navigation and observation; do not publish/delete/reset anything without asking.',
+    page: {
+      url: 'https://goldcoastspeakers.com.au/wp-login.php?dashboard&redirect=false',
+      title: 'Log In ‹ Gold Coast Speakers Directory — WordPress',
+    },
+  }, { allowQuestionFallback: false });
+
+  assert.notEqual(data.actions[0]?.target, 'https://goldcoastspeakers.com.au/wp-admin/plugins.php?s=wp+reset&plugin_status=all');
+  assert.match(data.reply, /need your exact approval/i);
+});
+
 test('activates installed WP Reset plugin from plugins page', () => {
   const data = parseReply({
     mode: 'agent_task',

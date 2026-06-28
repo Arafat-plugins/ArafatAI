@@ -57,6 +57,19 @@ permission approval
 
 The system must not auto-merge PRs.
 
+Self-improvement starts as a proposal package, not an automatic edit. The
+`propose-self-improvement` command writes:
+
+```text
+runs/self-improvement/<proposal-id>/proposal.json
+runs/self-improvement/<proposal-id>/eval-case.json
+runs/self-improvement/<proposal-id>/PR_SUMMARY.md
+runs/self-improvement/<proposal-id>/RUNBOOK.md
+```
+
+The runbook can create a branch and PR after review, but the proposal itself
+does not patch code or merge anything.
+
 ## Browser Action Schema
 
 Browser actions use small validated JSON:

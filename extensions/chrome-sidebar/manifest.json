@@ -11,6 +11,9 @@
   },
   "permissions": ["activeTab", "scripting", "sidePanel", "tabs"],
   "host_permissions": ["<all_urls>", "http://127.0.0.1:8792/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:8792 http://localhost:8792;"
+  },
   "background": {
     "service_worker": "background.js"
   },

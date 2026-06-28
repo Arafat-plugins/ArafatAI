@@ -19,6 +19,11 @@ RISKY_RE = re.compile(
     r"password|otp|2fa|bank|card|withdraw|transfer|submit|post)\b",
     re.IGNORECASE,
 )
+RISK_APPROVAL_RE = re.compile(
+    r"\b(yes|yeah|yep|confirm|confirmed|proceed|go ahead|allow|approve|approved|ok|okay|"
+    r"sure|ji|jee|ha|haan|hmm|korbo|koro|kore dao|kore fel|cholbe)\b",
+    re.IGNORECASE,
+)
 GREET_RE = re.compile(r"^\s*(hi|hello|hey|salam|assalamu|assalamu alaikum)\s*[!.।]*\s*$", re.IGNORECASE)
 DOMAIN_RE = re.compile(r"\b([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?:/[^\s]*)?", re.IGNORECASE)
 STOP_WORDS = {
@@ -118,7 +123,7 @@ def build_local_agent_reply(body: dict[str, object], *, allow_question_fallback:
             needs_approval=False,
         )
 
-    if RISKY_RE.search(goal):
+    if RISKY_RE.search(goal) and not _is_approved_login_entry(goal, page):
         return _dump(
             reply="This may affect an account, content, payment, or settings. I need your exact approval before acting.",
             reasoning_summary=["The request contains a risky action keyword, so local automation is blocked."],
@@ -915,6 +920,32 @@ def _click_plan(goal: str, page: dict[str, object]) -> dict[str, object] | None:
         "reason": f"Click visible page control: {label[:80]}.",
         "_reasoning": f'The page snapshot has a clickable target matching {best_score} goal word(s): "{label[:80]}".',
     }
+
+
+def _is_approved_login_entry(goal: str, page: dict[str, object]) -> bool:
+    """Allow explicit approval for login entry without opening write actions."""
+
+    if not RISK_APPROVAL_RE.search(goal):
+        return False
+
+    lower = goal.lower()
+    if not re.search(r"\b(log in|login|wp-submit|dashboard|admin)\b", lower):
+        return False
+
+    risk_goal = re.sub(r"\b(?:do not|don't|dont|never)\b[^.?!]*", "", lower)
+    if re.search(r"\b(delete|remove|publish|payment|pay|checkout|purchase|merge|deploy|reset|destroy|drop|truncate)\b", risk_goal):
+        return False
+
+    url = str(page.get("url") or "").lower()
+    title = str(page.get("title") or "").lower()
+    text = str(page.get("visible_text") or "").lower()
+    clickables = page.get("clickables") if isinstance(page.get("clickables"), list) else []
+    has_login_control = any(
+        isinstance(item, dict) and "log in" in str(item.get("text") or "").lower()
+        for item in clickables
+    )
+
+    return "wp-login.php" in url or "log in" in title or "wordpress" in title or "log in" in text or has_login_control
 
 
 def _has_explicit_action_intent(goal: str) -> bool:

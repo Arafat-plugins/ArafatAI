@@ -145,17 +145,42 @@ function compactTaskMemory(memory = {}) {
   const observations = Array.isArray(memory.recent_observations) ? memory.recent_observations : [];
   const successfulActions = Array.isArray(memory.successful_actions) ? memory.successful_actions : [];
   const failedActions = Array.isArray(memory.failed_actions) ? memory.failed_actions : [];
+  const evidence = Array.isArray(memory.evidence) ? memory.evidence : [];
 
   return {
     task_id: memory.task_id || '',
     goal: shorten(memory.goal, 700),
     status: memory.status || '',
+    task_classification: compactTaskClassification(memory.task_classification),
+    evidence: evidence.slice(-10).filter(isPlainObject).map(compactEvidence),
     history: Array.isArray(memory.history) ? memory.history.slice(-8) : [],
     last_page: isPlainObject(memory.last_page) ? memory.last_page : null,
     recent_plans: plans.slice(-5),
     recent_observations: observations.slice(-10),
     successful_actions: successfulActions.slice(-6),
     failed_actions: failedActions.slice(-6),
+  };
+}
+
+function compactTaskClassification(classification = {}) {
+  if (!isPlainObject(classification)) return null;
+  return {
+    task_type: classification.task_type || 'unknown',
+    domain: classification.domain || 'unknown',
+    risk_level: classification.risk_level || 'safe',
+    evidence_needed: Array.isArray(classification.evidence_needed) ? classification.evidence_needed.slice(0, 12) : [],
+    reason: shorten(classification.reason, 300),
+  };
+}
+
+function compactEvidence(evidence = {}) {
+  return {
+    evidence_id: evidence.evidence_id || '',
+    type: evidence.type || '',
+    title: shorten(evidence.title, 180),
+    summary: shorten(evidence.summary, 300),
+    path: evidence.path || '',
+    created_at: evidence.created_at || '',
   };
 }
 
@@ -184,6 +209,7 @@ export function buildExtensionPrompt(body = {}) {
   const rawTaskState = isPlainObject(body.task_state) ? body.task_state : {};
   const approvalPolicy = String(body.approval_policy || 'ask');
   const attachments = compactAttachments(body.attachments);
+  const taskClassification = compactTaskClassification(body.task_classification);
 
   const instructions = [
     'You are FLUID running behind a local Chrome sidebar extension.',
@@ -195,6 +221,7 @@ export function buildExtensionPrompt(body = {}) {
     'Before proposing an action, compare it with task_memory.recent_plans, successful_actions, failed_actions, and recent_observations.',
     'Do not repeat the same failed target/action unless the latest page snapshot or screenshot shows a meaningful change.',
     'If the page snapshot is insufficient or the target is ambiguous, ask a short question instead of inventing an action.',
+    'Use task_classification to choose the work mode. Investigation and engineering_fix tasks require evidence before claiming a fix.',
     'The user is a developer working on their own sites all day. When the target is clear from the current tab, prior memory, or the latest user message, proceed with the next safe step instead of repeatedly asking for confirmation.',
     'Opening admin pages, checking plugin status, searching settings, observing pages, and clicking navigation/sidebar/menu items are safe steps even when the overall task mentions reset, delete, or another risky goal.',
     'Any browser action must be proposed only; the extension executes it and sends back observations.',
@@ -208,7 +235,7 @@ export function buildExtensionPrompt(body = {}) {
   if (['browser_plan', 'agent_chat', 'agent_plan', 'agent_task'].includes(mode)) {
     instructions.push(
       'Return strict JSON only.',
-      'Schema: {"reply":"short user-facing answer","reasoning_summary":["1-4 short evidence-based bullets"],"questions":["short question if needed"],"actions":[{"type":"navigate|search|click|type|press|wait|observe|wait_for_manual_verification","target":"ref id, selector, URL, or search query","value":"optional query/text/URL/key/wait ms","mode":"web|images","reason":"why this action is safe and relevant"}],"done":true|false,"needs_approval":true|false}',
+      'Schema: {"reply":"short user-facing answer","reasoning_summary":["1-4 short evidence-based bullets"],"questions":["short question if needed"],"actions":[{"type":"navigate|search|click|type|press|wait|observe|wait_for_manual_verification|tool","target":"ref id, selector, URL, search query, or tool name","value":"optional query/text/URL/key/wait ms","tool":"optional allowed tool name","input":{"optional":"tool input object"},"mode":"web|images","reason":"why this action is safe and relevant"}],"done":true|false,"needs_approval":true|false}',
       'The JSON must be valid: escape every newline inside reply strings as \\n, escape quotes, and never print Markdown or code outside the JSON object.',
       'When the user asks for code, fixing code, exact code, or "code dao", put the final code in exactly one fenced code block inside reply. Do not split JS and CSS into separate code blocks; use path comments inside one block if multiple files are needed.',
       'Code answers must be production-style: minimal scope, no intervals unless necessary, no broad selectors when specific selectors exist, and include assumptions before the single code block if needed.',
@@ -219,6 +246,7 @@ export function buildExtensionPrompt(body = {}) {
       'For YouTube watch links, prefer a navigate action to the supplied href instead of clicking a ref id that may become stale.',
       'Do not set done true for a play request just because a YouTube results page is open; done requires an active matching watch page or explicit observation.',
       'For multi-step tasks, choose the next 1-3 safe actions, then wait for observations in task_state.',
+      'For evidence collection during investigation or engineering_fix tasks, you may propose type "tool" with target/tool set to one of the bridge allowlisted tools such as http_get, wp_overview, wp_active_theme, wp_plugins, file_read, file_search, git_status, git_diff_summary, php_lint, node_test, or chrome_cdp_check. Use only compact input objects. The bridge logs tool results as evidence.',
       'Use previous task_state observations to decide whether the task is done or what to do next.',
       'Set done true only when observations or page snapshot show the requested task is complete.',
       'If credentials, payment, or external financial actions are needed, ask a question and return no actions. If a CAPTCHA/manual human verification page is visible, return wait_for_manual_verification with no click action so the user can complete it manually and the extension can continue after the page changes.',
@@ -240,6 +268,7 @@ export function buildExtensionPrompt(body = {}) {
     history: history.slice(-6),
     conversation_memory: conversationMemory,
     task_memory: taskMemory,
+    task_classification: taskClassification,
     attachments,
     task_state: compactTaskState(rawTaskState),
     approval_policy: approvalPolicy,

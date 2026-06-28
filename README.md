@@ -57,13 +57,40 @@ tests/          automated tests
 node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider codex --timeout 45
 ```
 
+Python-core planning can be tested through the same Chrome sidebar HTTP
+contract while the Node bridge remains the lightweight browser adapter:
+
+```powershell
+node tools\sidebar-bridge-node\src\server.mjs --port 8792 --token arafatai-local-token --cwd . --provider python-core --python-path D:\ArafatTools\venvs\ArafatAI\Scripts\python.exe --timeout 45 --allow-local-fallback
+```
+
 ## Later Python Core Commands
 
 ```bash
 python -m pip install -e .
 python -m arafatai --help
+python -m arafatai sidebar-reason < request.json
 python -m pytest
 ```
+
+## PR-Gated Self Improvement
+
+When FLUID fails or repeats a bad route, create a reviewable improvement
+proposal before changing planner/tool code:
+
+```powershell
+python -m arafatai propose-self-improvement `
+  --failure "Geo search returned no results after location detection." `
+  --actual "FLUID guessed a fix without request evidence." `
+  --expected "FLUID must inspect submitted coordinates before suggesting a patch." `
+  --area directorist `
+  --evidence "runs/bridge-tasks/<task-id>/evidence/search-form.json"
+```
+
+The command writes a proposal folder under `runs/self-improvement/` with an eval
+case, PR summary, and runbook. It may append a lesson to `memory/lessons.jsonl`.
+It does not patch code, push, merge, or deploy. Human review and a PR merge stay
+mandatory.
 
 Windows D-drive setup for this machine:
 

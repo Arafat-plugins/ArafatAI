@@ -12,14 +12,27 @@ Chrome sidebar
 ArafatAI local bridge
   validates token
   builds bounded agent-contract prompt
-  calls Codex CLI in read-only ephemeral mode for testing
-  uses the Python local planner for obvious safe browser actions
+  calls Codex CLI or Python core provider for planning
+  uses deterministic local planners for obvious safe browser actions
   stores task checkpoints
   returns text to sidebar
 ```
 
 Codex is only the temporary provider. The extension is built around a stable
 JSON contract so Arafat's own AI can replace Codex later.
+
+The Node bridge can now keep serving Chrome while delegating planning to the
+Python-first core:
+
+```bash
+node tools/sidebar-bridge-node/src/server.mjs --port 8792 --token arafatai-local-token --cwd . --provider python-core --timeout 45 --allow-local-fallback
+```
+
+The Python core provider entrypoint is stdin/stdout JSON:
+
+```bash
+python -m arafatai sidebar-reason < request.json
+```
 
 ## Run Bridge
 

@@ -1,7 +1,11 @@
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { EvidenceStore } from './evidence-store.mjs';
+import { classifyTask } from './task-classifier.mjs';
+import { createToolRegistry } from './tool-registry.mjs';
 import { createReasoner } from './reasoner.mjs';
 import { saveTaskAttachments } from './attachment-store.mjs';
 import { TaskStore } from './task-store.mjs';
@@ -18,6 +22,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     cwd: repoRoot,
     provider: 'codex',
     codexPath: '',
+    pythonCommand: '',
     timeoutSeconds: DEFAULT_TIMEOUT_SECONDS,
     allowLocalFallback: false,
   };
@@ -43,6 +48,9 @@ function parseArgs(argv = process.argv.slice(2)) {
     } else if (arg === '--codex-path' && next) {
       config.codexPath = next;
       i += 1;
+    } else if ((arg === '--python-path' || arg === '--python-command') && next) {
+      config.pythonCommand = next;
+      i += 1;
     } else if (arg === '--timeout' && next) {
       config.timeoutSeconds = Number(next);
       i += 1;
@@ -62,10 +70,21 @@ export function createBridgeServer(config = {}) {
     cwd: path.resolve(config.cwd || process.cwd()),
     provider: config.provider || 'codex',
     codexPath: config.codexPath || '',
+    pythonCommand: config.pythonCommand || config.pythonPath || '',
+    pythonArgs: Array.isArray(config.pythonArgs) ? config.pythonArgs : [],
     timeoutSeconds: Number(config.timeoutSeconds || DEFAULT_TIMEOUT_SECONDS),
     allowLocalFallback: Boolean(config.allowLocalFallback),
   };
-  const tasks = new TaskStore(path.join(finalConfig.cwd, 'runs', 'bridge-tasks'));
+  const taskRoot = path.join(finalConfig.cwd, 'runs', 'bridge-tasks');
+  const tasks = new TaskStore(taskRoot);
+  const evidence = new EvidenceStore(taskRoot, tasks);
+  const toolRegistry = createToolRegistry({
+    fetchImpl: config.fetchImpl || globalThis.fetch,
+    WebSocketImpl: config.WebSocketImpl || globalThis.WebSocket,
+    workspaceRoot: finalConfig.cwd,
+    patchRoot: path.join(finalConfig.cwd, 'runs', 'patch-workflows'),
+    artifactRoot: path.join(finalConfig.cwd, 'runs', 'browser-evidence'),
+  });
   const planningTasks = new Set();
   const reason = createReasoner(finalConfig);
   const attachmentRoot = path.join(finalConfig.cwd, 'runs', 'bridge-attachments');
@@ -97,15 +116,40 @@ export function createBridgeServer(config = {}) {
       page: isPlainObject(body.page) ? body.page : {},
       history: Array.isArray(task.history) ? task.history : [],
       conversation_memory: conversationMemory,
-      task_memory: buildTaskMemory(task),
+      task_memory: await buildTaskMemory(task, { evidenceRoot: taskRoot }),
       attachments: [...taskAttachments, ...requestAttachments],
       task_state: {
         ...taskState,
         task_id: taskId,
         observations: await tasks.observations(taskId),
       },
+      task_classification: classifyTask({
+        ...body,
+        mode: 'agent_task',
+        goal: task.goal || body.goal || '',
+      }),
       approval_policy: body.approval_policy || 'auto-safe-actions',
     };
+  }
+
+  async function classifyAndRecordTask(taskId, body) {
+    const classification = classifyTask({
+      ...body,
+      mode: 'agent_task',
+    });
+    await tasks.update(taskId, {
+      task_classification: classification,
+    });
+    await evidence.append(
+      taskId,
+      {
+        type: 'classification',
+        title: 'Initial task classification',
+        summary: classificationSummary(classification),
+      },
+      classification,
+    );
+    return classification;
   }
 
   async function runPlanJob(taskId, body) {
@@ -123,6 +167,7 @@ export function createBridgeServer(config = {}) {
         text: result.text,
         source: result.source,
         error: result.error,
+        task_classification: request.task_classification,
       });
     } catch (error) {
       await tasks.appendEvent(taskId, {
@@ -167,6 +212,7 @@ export function createBridgeServer(config = {}) {
           '/reason',
           '/tasks',
           '/tasks/{id}',
+          '/tasks/{id}/tool',
           '/tasks/{id}/plan',
           '/tasks/{id}/plan-async',
           '/tasks/{id}/event',
@@ -229,7 +275,43 @@ export function createBridgeServer(config = {}) {
           rejected_attachments: saved.rejected,
         });
       }
+      await classifyAndRecordTask(task.id, {
+        ...body,
+        goal,
+      });
+      task = await tasks.get(task.id);
       sendJson(res, 200, { ok: true, task });
+      return;
+    }
+
+    if (taskId && routePath.endsWith('/tool')) {
+      const task = await tasks.get(taskId);
+      if (!task) {
+        sendJson(res, 404, { ok: false, error: 'task_not_found' });
+        return;
+      }
+
+      const toolName = body.tool || body.tool_name || body.name;
+      const toolInput = isPlainObject(body.input) ? body.input : isPlainObject(body.args) ? body.args : {};
+      const result = await toolRegistry.run(toolName, toolInput);
+      const evidenceRecord = await evidence.append(
+        taskId,
+        result.evidence || {
+          type: result.ok ? 'tool' : 'tool_error',
+          title: result.ok ? `Tool result: ${toolName}` : `Tool failed: ${toolName}`,
+          summary: result.error || '',
+        },
+        result.payload || result.result || { tool: toolName, error: result.error || '' },
+      );
+      const updatedTask = await tasks.get(taskId);
+      sendJson(res, result.ok ? 200 : result.status || 500, {
+        ok: result.ok,
+        tool: toolName || '',
+        result: result.result || null,
+        error: result.error || null,
+        evidence: evidenceRecord,
+        task: updatedTask,
+      });
       return;
     }
 
@@ -260,6 +342,7 @@ export function createBridgeServer(config = {}) {
         text: result.text,
         source: result.source,
         error: result.error,
+        task_classification: request.task_classification,
       });
       sendJson(res, result.ok ? 200 : 502, {
         ok: result.ok,
@@ -267,6 +350,7 @@ export function createBridgeServer(config = {}) {
         source: result.source,
         error: result.error,
         task_id: taskId,
+        task_classification: request.task_classification,
       });
       return;
     }
@@ -305,18 +389,31 @@ export function createBridgeServer(config = {}) {
     }
 
     if (routePath === '/reason') {
-      const result = await reason(body);
+      const request = {
+        ...body,
+        task_classification: classifyTask(body),
+      };
+      const result = await reason(request);
       sendJson(res, result.ok ? 200 : 502, {
         ok: result.ok,
         text: result.text,
         source: result.source,
         error: result.error,
+        task_classification: request.task_classification,
       });
       return;
     }
 
     sendJson(res, 404, { ok: false, error: 'not_found' });
   }
+}
+
+function classificationSummary(classification = {}) {
+  return [
+    classification.task_type || 'unknown',
+    classification.domain || 'unknown',
+    classification.risk_level || 'safe',
+  ].join('/');
 }
 
 function taskIdFromPath(routePath) {
@@ -348,6 +445,7 @@ function sendJson(res, status, payload) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, x-arafatai-token',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Private-Network': 'true',
   });
   res.end(body);
 }
@@ -436,7 +534,7 @@ function lastPageFromEvents(events = []) {
   return null;
 }
 
-function buildTaskMemory(task = {}) {
+async function buildTaskMemory(task = {}, options = {}) {
   const events = Array.isArray(task.events) ? task.events : [];
   const observations = events.filter((event) => event?.kind === 'observation').map(compactObservation);
   const actionEvents = observations.filter((event) => event.action?.type);
@@ -445,6 +543,8 @@ function buildTaskMemory(task = {}) {
     task_id: task.id || '',
     goal: shorten(task.goal, 700),
     status: task.status || '',
+    task_classification: isPlainObject(task.task_classification) ? task.task_classification : null,
+    evidence: await compactEvidenceList(task.evidence, options),
     history: compactHistory(task.history),
     last_page: lastPageFromEvents(events),
     recent_plans: events.filter((event) => event?.kind === 'plan').slice(-5).map(compactPlan),
@@ -452,6 +552,114 @@ function buildTaskMemory(task = {}) {
     successful_actions: actionEvents.filter((event) => event.ok).slice(-6),
     failed_actions: actionEvents.filter((event) => !event.ok).slice(-6),
   };
+}
+
+async function compactEvidenceList(evidenceItems = [], options = {}) {
+  const items = Array.isArray(evidenceItems) ? evidenceItems.slice(-10) : [];
+  const compacted = [];
+  let payloadsAttached = 0;
+  for (const item of items) {
+    const compactedItem = compactEvidence(item);
+    if (payloadsAttached < 3) {
+      const payload = await readCompactEvidencePayload(item, options);
+      if (payload) {
+        compactedItem.payload = payload;
+        payloadsAttached += 1;
+      }
+    }
+    compacted.push(compactedItem);
+  }
+  return compacted;
+}
+
+function compactEvidence(evidence = {}) {
+  return {
+    evidence_id: evidence.evidence_id || '',
+    type: evidence.type || '',
+    title: shorten(evidence.title, 180),
+    summary: shorten(evidence.summary, 300),
+    path: evidence.path || '',
+    created_at: evidence.created_at || '',
+  };
+}
+
+async function readCompactEvidencePayload(evidence = {}, options = {}) {
+  if (!isPlainObject(evidence) || evidence.type !== 'browser_verification') return null;
+  if (!options.evidenceRoot || !evidence.path) return null;
+
+  const root = path.resolve(options.evidenceRoot);
+  const filePath = path.resolve(root, String(evidence.path || ''));
+  if (!isPathInside(filePath, root)) return null;
+
+  try {
+    const raw = await readFile(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return compactBrowserVerificationPayload(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function compactBrowserVerificationPayload(payload = {}) {
+  if (!isPlainObject(payload) || payload.tool !== 'chrome_cdp_check') return null;
+  const result = isPlainObject(payload.result) ? payload.result : {};
+  const assertion = isPlainObject(result.assertion) ? result.assertion : {};
+  if (!Object.keys(assertion).length) return null;
+
+  return {
+    tool: 'chrome_cdp_check',
+    result: {
+      ok: Boolean(result.ok),
+      target: compactCdpTarget(result.target),
+      assertion: compactCdpAssertion(assertion),
+      screenshot: compactCdpScreenshot(result.screenshot),
+    },
+  };
+}
+
+function compactCdpTarget(target = {}) {
+  if (!isPlainObject(target)) return {};
+  return {
+    url: shorten(target.url, 300),
+    title: shorten(target.title, 180),
+  };
+}
+
+function compactCdpAssertion(assertion = {}) {
+  return {
+    ok: Boolean(assertion.ok),
+    selector: shorten(assertion.selector, 120),
+    exists: Boolean(assertion.exists),
+    visible: Boolean(assertion.visible),
+    text: shorten(assertion.text, 1500),
+    rect: isPlainObject(assertion.rect) ? assertion.rect : null,
+    layout: isPlainObject(assertion.layout) ? assertion.layout : {},
+    clickables: Array.isArray(assertion.clickables)
+      ? assertion.clickables.slice(0, 20).filter(isPlainObject).map((item) => ({
+        text: shorten(item.text, 160),
+      }))
+      : [],
+    images: Array.isArray(assertion.images)
+      ? assertion.images.slice(0, 20).filter(isPlainObject).map((item) => ({
+        alt: shorten(item.alt, 160),
+        box: isPlainObject(item.box) ? item.box : {},
+      }))
+      : [],
+  };
+}
+
+function compactCdpScreenshot(screenshot = {}) {
+  if (!isPlainObject(screenshot) || !screenshot.path) return null;
+  return {
+    path: shorten(screenshot.path, 300),
+    format: shorten(screenshot.format, 20),
+    bytes: Number(screenshot.bytes || 0),
+  };
+}
+
+function isPathInside(filePath, root) {
+  const relative = path.relative(root, filePath);
+  return Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function isPlainObject(value) {

@@ -1322,12 +1322,21 @@ function textPreview(value, limit = 240) {
 
 function isWpResetGoal(text) {
   const lower = String(text || '').toLowerCase();
+  if (isResetOnlySafetyBoundary(lower)) return false;
   if (lower.includes('wp reset')) return true;
   if (lower.includes('wordpress reset')) return true;
   if (lower.includes('plugin active') && lower.includes('reset')) return true;
   if (lower.includes('plugin activate') && lower.includes('reset')) return true;
   if (/\breset\b/.test(lower) && /\b(site|wordpress|wp|plugin|local|database|db)\b/.test(lower)) return true;
   return /\breset\s+(kor|koro|korbo|korte|kore|dao|daw)\b/.test(lower);
+}
+
+function isResetOnlySafetyBoundary(text) {
+  const lower = String(text || '').toLowerCase();
+  return (
+    /\b(do not|don't|dont|never|not)\b[^.?!]{0,80}\breset\b/.test(lower) ||
+    /\breset\b[^.?!]{0,80}\bwithout\s+asking\b/.test(lower)
+  );
 }
 
 function hasRiskApproval(text) {

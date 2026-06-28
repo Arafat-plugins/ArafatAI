@@ -1,0 +1,1125 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R 12 0 R 14 0 R 16 0 R 18 0 R 20 0 R 22 0 R 24 0 R 26 0 R 28 0 R 30 0 R 32 0 R 34 0 R 36 0 R] /Count 17 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 2377 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(# FLUID Engineering Upgrade Plan) Tj T*
+() Tj T*
+(## Purpose) Tj T*
+() Tj T*
+(This document defines how FLUID should evolve from a Chrome side-panel browser assistant into a) Tj T*
+(practical engineering assistant that can investigate, fix, and verify real WordPress/support) Tj T*
+(issues with evidence.) Tj T*
+() Tj T*
+(The target is not to copy hidden reasoning. The target is to copy the engineering workflow:) Tj T*
+() Tj T*
+(1. Understand the user goal.) Tj T*
+(2. Collect real evidence from browser, HTTP, files, logs, and tests.) Tj T*
+(3. Decide the smallest safe fix.) Tj T*
+(4. Apply changes only through the correct surface.) Tj T*
+(5. Verify the result with repeatable checks.) Tj T*
+(6. Save the lesson so the same failure does not repeat.) Tj T*
+() Tj T*
+(## Current State) Tj T*
+() Tj T*
+(FLUID currently has these working parts:) Tj T*
+() Tj T*
+(- Chrome sidebar extension in `extensions/chrome-sidebar`.) Tj T*
+(- Local Node bridge in `tools/sidebar-bridge-node`.) Tj T*
+(- Task checkpoint storage in `runs/bridge-tasks`.) Tj T*
+(- Attachments storage in `runs/bridge-attachments`.) Tj T*
+(- Provider contract that can return `reply`, `reasoning_summary`, `questions`, `actions`,) Tj T*
+(`done`, and `needs_approval`.) Tj T*
+(- Local planner in `tools/sidebar-bridge-node/src/local-planner.mjs`.) Tj T*
+(- Provider router in `tools/sidebar-bridge-node/src/reasoner.mjs`.) Tj T*
+(- Codex provider in `tools/sidebar-bridge-node/src/codex-provider.mjs`.) Tj T*
+(- Unit tests in `tools/sidebar-bridge-node/test`.) Tj T*
+() Tj T*
+(Current limitation:) Tj T*
+() Tj T*
+(- The Chrome extension is good at page observation and browser actions.) Tj T*
+(- The local planner is too keyword-driven for complex support work.) Tj T*
+(- The bridge does not yet own full engineering tools such as filesystem inspection, shell) Tj T*
+(commands, lint/test runs, Git checks, WordPress HTTP sessions, or structured verification.) Tj T*
+(- It can act in the browser, but it cannot yet reliably do full root-cause investigation) Tj T*
+(without help.) Tj T*
+() Tj T*
+(## Extension Vs Desktop Decision) Tj T*
+() Tj T*
+(Do not move everything into the Chrome extension.) Tj T*
+() Tj T*
+(Use a hybrid architecture:) Tj T*
+() Tj T*
+(```text) Tj T*
+(Chrome Sidebar) Tj T*
+(  - user interface) Tj T*
+(  - current tab snapshot) Tj T*
+(  - screenshots) Tj T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 1548 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(  - safe browser actions) Tj T*
+() Tj T*
+(Local Desktop Bridge) Tj T*
+(  - planning and task state) Tj T*
+(  - shell/file/git tools) Tj T*
+(  - WordPress HTTP session tools) Tj T*
+(  - code patch and backup workflow) Tj T*
+(  - lint/test/verification) Tj T*
+(  - memory and evals) Tj T*
+() Tj T*
+(Future Python Core) Tj T*
+(  - agent orchestration) Tj T*
+(  - memory retrieval) Tj T*
+(  - eval scoring) Tj T*
+(  - PR-gated self improvement) Tj T*
+(```) Tj T*
+() Tj T*
+(Reason:) Tj T*
+() Tj T*
+(Chrome extensions are sandboxed. They should not directly edit local files, run shell commands,) Tj T*
+(lint PHP, inspect Git history, or deploy changes. The bridge can do those things with explicit) Tj T*
+(safety gates.) Tj T*
+() Tj T*
+(## Main Design Rule) Tj T*
+() Tj T*
+(FLUID must never jump from user text directly to a fix.) Tj T*
+() Tj T*
+(Every non-trivial task must follow this loop:) Tj T*
+() Tj T*
+(```text) Tj T*
+(Goal -> Evidence -> Hypothesis -> Fix Plan -> Approval Gate -> Patch -> Verification -> Lesson) Tj T*
+(```) Tj T*
+() Tj T*
+(If evidence is missing, FLUID must ask a short question or run a safe observation step.) Tj T*
+() Tj T*
+(## Required Work Modes) Tj T*
+() Tj T*
+(### 1. Browser Mode) Tj T*
+() Tj T*
+(Use when the task is only browser navigation or visible page checking.) Tj T*
+() Tj T*
+(Allowed actions:) Tj T*
+() Tj T*
+(- navigate) Tj T*
+(- click) Tj T*
+(- type) Tj T*
+(- press) Tj T*
+(- wait) Tj T*
+(- observe) Tj T*
+(- screenshot) Tj T*
+() Tj T*
+(Browser Mode must stop before:) Tj T*
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 1527 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+() Tj T*
+(- publishing) Tj T*
+(- deleting) Tj T*
+(- resetting) Tj T*
+(- payment) Tj T*
+(- changing settings) Tj T*
+(- submitting real data) Tj T*
+(- editing live code) Tj T*
+() Tj T*
+(### 2. Investigation Mode) Tj T*
+() Tj T*
+(Use for support issues like:) Tj T*
+() Tj T*
+(- "search returns no results") Tj T*
+(- "button hidden") Tj T*
+(- "field missing") Tj T*
+(- "dropdown not working") Tj T*
+(- "responsive issue") Tj T*
+(- "CSV export missing field") Tj T*
+(- "booking does not show") Tj T*
+() Tj T*
+(Investigation Mode collects:) Tj T*
+() Tj T*
+(- current URL and page snapshot) Tj T*
+(- request payload or query string) Tj T*
+(- console/network clues when available) Tj T*
+(- active theme/plugin surface) Tj T*
+(- WordPress REST/API evidence when available) Tj T*
+(- relevant source code path or theme file) Tj T*
+(- exact reproducible condition) Tj T*
+() Tj T*
+(No code change is allowed until the root cause is stated in a short evidence summary.) Tj T*
+() Tj T*
+(### 3. Engineering Fix Mode) Tj T*
+() Tj T*
+(Use after root cause is known.) Tj T*
+() Tj T*
+(Required steps:) Tj T*
+() Tj T*
+(1. Identify target surface:) Tj T*
+(   - child theme) Tj T*
+(   - mu-plugin) Tj T*
+(   - Code Snippets) Tj T*
+(   - plugin repo) Tj T*
+(   - local package) Tj T*
+(2. Back up existing file or record Git status.) Tj T*
+(3. Apply smallest patch.) Tj T*
+(4. Run syntax/test check.) Tj T*
+(5. Verify in browser or HTTP.) Tj T*
+(6. Save final explanation.) Tj T*
+() Tj T*
+(### 4. Review-Only Mode) Tj T*
+ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 11 0 R >>
+endobj
+11 0 obj
+<< /Length 1374 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+() Tj T*
+(Use when the user asks for:) Tj T*
+() Tj T*
+(- "list first") Tj T*
+(- "audit") Tj T*
+(- "explain") Tj T*
+(- "logic only") Tj T*
+(- "do not implement yet") Tj T*
+() Tj T*
+(In this mode FLUID must create notes and avoid code changes.) Tj T*
+() Tj T*
+(### 5. Learning/Eval Mode) Tj T*
+() Tj T*
+(Use after a failure or after a successful fix.) Tj T*
+() Tj T*
+(The system saves:) Tj T*
+() Tj T*
+(- task type) Tj T*
+(- root cause) Tj T*
+(- evidence used) Tj T*
+(- wrong path avoided) Tj T*
+(- correct fix surface) Tj T*
+(- verification commands) Tj T*
+(- future regression test idea) Tj T*
+() Tj T*
+(## Anti-Hallucination Rules) Tj T*
+() Tj T*
+(FLUID must not say a fix is done unless it has one of these:) Tj T*
+() Tj T*
+(- live page verification) Tj T*
+(- HTTP response verification) Tj T*
+(- screenshot verification) Tj T*
+(- test output) Tj T*
+(- lint output) Tj T*
+(- Git diff review) Tj T*
+(- WordPress admin/file editor confirmation) Tj T*
+() Tj T*
+(FLUID must not guess:) Tj T*
+() Tj T*
+(- active theme) Tj T*
+(- plugin availability) Tj T*
+(- file path) Tj T*
+(- hook name) Tj T*
+(- shortcode behavior) Tj T*
+(- database setting) Tj T*
+(- REST route behavior) Tj T*
+(- submitted form fields) Tj T*
+() Tj T*
+(When unsure, FLUID should say:) Tj T*
+() Tj T*
+(```text) Tj T*
+(I do not have evidence yet. I will inspect X first.) Tj T*
+ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 13 0 R >>
+endobj
+13 0 obj
+<< /Length 1751 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(```) Tj T*
+() Tj T*
+(## Real Failure Lessons To Encode) Tj T*
+() Tj T*
+(### Case 1: Safety Wording Misrouted To WP Reset) Tj T*
+() Tj T*
+(Observed failure:) Tj T*
+() Tj T*
+(- User said "do not publish/delete/reset".) Tj T*
+(- Local planner saw `reset` and routed to WP Reset.) Tj T*
+() Tj T*
+(Fix already started:) Tj T*
+() Tj T*
+(- `isResetOnlySafetyBoundary\(\)` added in `tools/sidebar-bridge-node/src/local-planner.mjs`.) Tj T*
+(- Unit test added in `tools/sidebar-bridge-node/test/local-planner.test.mjs`.) Tj T*
+() Tj T*
+(Permanent rule:) Tj T*
+() Tj T*
+(- Negative safety phrases must not become action intent.) Tj T*
+(- "do not reset" means block/reset avoidance, not reset execution.) Tj T*
+() Tj T*
+(Acceptance test:) Tj T*
+() Tj T*
+(```text) Tj T*
+(Goal: "Investigate this WordPress issue. Do not publish/delete/reset anything.") Tj T*
+(Expected: no WP Reset route.) Tj T*
+(```) Tj T*
+() Tj T*
+(### Case 2: WordPress Hidden Login Route) Tj T*
+() Tj T*
+(Observed issue:) Tj T*
+() Tj T*
+(- Direct `/wp-login.php` failed on one site.) Tj T*
+(- Valid login started at `/dashboard`, which redirected to a special login URL.) Tj T*
+() Tj T*
+(Permanent rule:) Tj T*
+() Tj T*
+(- If the user provides an admin/dashboard URL, prefer that route over guessing `/wp-login.php`.) Tj T*
+(- If direct login fails, inspect redirects before declaring login impossible.) Tj T*
+() Tj T*
+(Acceptance test:) Tj T*
+() Tj T*
+(```text) Tj T*
+(Input URL: https://example.com/dashboard) Tj T*
+(Expected: preserve user-provided login route and follow redirects.) Tj T*
+(```) Tj T*
+() Tj T*
+(### Case 3: Directorist Geo Search No Results) Tj T*
+() Tj T*
+(Observed issue:) Tj T*
+() Tj T*
+(- Geolocation filled the visible address.) Tj T*
+ET
+endstream
+endobj
+14 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 15 0 R >>
+endobj
+15 0 obj
+<< /Length 1994 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(- Page had multiple Directorist search forms with duplicate `cityLat/cityLng`.) Tj T*
+(- Only the first coordinate pair was updated.) Tj T*
+(- Submitted form could send address with blank coordinates.) Tj T*
+() Tj T*
+(Correct workflow:) Tj T*
+() Tj T*
+(1. Inspect live form fields.) Tj T*
+(2. Inspect Directorist query condition.) Tj T*
+(3. Verify published listings with known coordinates.) Tj T*
+(4. Patch child theme, not core plugin.) Tj T*
+(5. Remove old orphan geolocation code.) Tj T*
+(6. Verify logged-out page and search results.) Tj T*
+() Tj T*
+(Permanent rule:) Tj T*
+() Tj T*
+(- For search bugs, inspect actual request fields before touching code.) Tj T*
+(- For repeated forms, check duplicate IDs and submitted form scope.) Tj T*
+() Tj T*
+(Acceptance test:) Tj T*
+() Tj T*
+(```text) Tj T*
+(Given multiple search forms) Tj T*
+(When one form has address text and another has known cityLat/cityLng) Tj T*
+(Then the submitted form gets cityLat/cityLng before submit.) Tj T*
+(```) Tj T*
+() Tj T*
+(### Case 4: Draft Test Listing Misleading Search Result) Tj T*
+() Tj T*
+(Observed issue:) Tj T*
+() Tj T*
+(- User supplied a preview URL for listing `3862`.) Tj T*
+(- The listing was draft.) Tj T*
+(- Public search should not return draft content.) Tj T*
+() Tj T*
+(Permanent rule:) Tj T*
+() Tj T*
+(- Before using a test listing for public search verification, check status.) Tj T*
+(- If it is draft/private/pending, verify against a published listing too.) Tj T*
+() Tj T*
+(### Case 5: Booking Dropdown Regression) Tj T*
+() Tj T*
+(Observed issue family:) Tj T*
+() Tj T*
+(- A previous fix was made for one broken booking condition.) Tj T*
+(- A later change risked disrupting original booking dropdown behavior.) Tj T*
+() Tj T*
+(Permanent rule:) Tj T*
+() Tj T*
+(- Before editing booking code, inspect the old fix, plugin state, and a comparable working) Tj T*
+(local flow.) Tj T*
+(- Preserve original plugin behavior unless the defect is proven.) Tj T*
+() Tj T*
+ET
+endstream
+endobj
+16 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 17 0 R >>
+endobj
+17 0 obj
+<< /Length 1683 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(## Implementation Phases) Tj T*
+() Tj T*
+(## Phase 0: Freeze And Document Current Behavior) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Create a stable baseline before adding power tools.) Tj T*
+() Tj T*
+(Tasks:) Tj T*
+() Tj T*
+(- Run current test suite.) Tj T*
+(- Save current planner behavior examples.) Tj T*
+(- Document the existing bridge API.) Tj T*
+(- Record current Chrome sidebar action loop.) Tj T*
+(- Commit the already-made WP Reset safety patch after review.) Tj T*
+() Tj T*
+(Files:) Tj T*
+() Tj T*
+(- `tools/sidebar-bridge-node/src/local-planner.mjs`) Tj T*
+(- `tools/sidebar-bridge-node/test/local-planner.test.mjs`) Tj T*
+(- `docs/CHROME_SIDEBAR_BRIDGE.md`) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+() Tj T*
+(- `npm test --prefix tools/sidebar-bridge-node` passes.) Tj T*
+(- Known WP Reset false-positive test passes.) Tj T*
+(- No behavior change outside planner safety.) Tj T*
+() Tj T*
+(## Phase 1: Task Classifier) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Replace fragile keyword-only routing with an intent classifier.) Tj T*
+() Tj T*
+(Add a new module:) Tj T*
+() Tj T*
+(```text) Tj T*
+(tools/sidebar-bridge-node/src/task-classifier.mjs) Tj T*
+(```) Tj T*
+() Tj T*
+(Classifier output:) Tj T*
+() Tj T*
+(```json) Tj T*
+({) Tj T*
+(  "task_type": "browser_only | investigation | engineering_fix | review_only | risky_action |) Tj T*
+(unknown",) Tj T*
+(  "domain": "wordpress | directorist | generic_web | github | local_repo | unknown",) Tj T*
+(  "risk_level": "safe | needs_confirmation | blocked",) Tj T*
+(  "evidence_needed": ["page_snapshot", "http_request", "file_read"],) Tj T*
+(  "reason": "short visible reason") Tj T*
+(}) Tj T*
+(```) Tj T*
+ET
+endstream
+endobj
+18 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 19 0 R >>
+endobj
+19 0 obj
+<< /Length 1400 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+() Tj T*
+(Rules:) Tj T*
+() Tj T*
+(- Negative words like `do not`, `don't`, `never`, `without asking` must reduce action intent.) Tj T*
+(- User-provided URLs must be preserved.) Tj T*
+(- Browser-only tasks should remain fast.) Tj T*
+(- Complex bug reports should route to Investigation Mode.) Tj T*
+() Tj T*
+(Tests:) Tj T*
+() Tj T*
+(- "open google" -> browser_only.) Tj T*
+(- "check why search no result" -> investigation.) Tj T*
+(- "fix in child theme" -> engineering_fix but only after evidence.) Tj T*
+(- "do not reset" -> not WP Reset.) Tj T*
+(- "reset this local site" -> risky_action, needs confirmation.) Tj T*
+() Tj T*
+(## Phase 2: Evidence Store) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Make every task traceable.) Tj T*
+() Tj T*
+(Add:) Tj T*
+() Tj T*
+(```text) Tj T*
+(tools/sidebar-bridge-node/src/evidence-store.mjs) Tj T*
+(```) Tj T*
+() Tj T*
+(Store under:) Tj T*
+() Tj T*
+(```text) Tj T*
+(runs/bridge-tasks/{task_id}/evidence/) Tj T*
+(```) Tj T*
+() Tj T*
+(Evidence types:) Tj T*
+() Tj T*
+(- page snapshot) Tj T*
+(- screenshot path) Tj T*
+(- URL) Tj T*
+(- HTTP response summary) Tj T*
+(- request payload/query string) Tj T*
+(- file path and hash) Tj T*
+(- command output summary) Tj T*
+(- patch path) Tj T*
+(- verification result) Tj T*
+() Tj T*
+(Task checkpoint should include:) Tj T*
+() Tj T*
+(```json) Tj T*
+({) Tj T*
+(  "evidence": [) Tj T*
+(    {) Tj T*
+ET
+endstream
+endobj
+20 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 21 0 R >>
+endobj
+21 0 obj
+<< /Length 1578 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(      "type": "http",) Tj T*
+(      "title": "Search endpoint with Shrewsbury coordinates",) Tj T*
+(      "summary": "Returned OATH COFFEE, Kal, Peaberry",) Tj T*
+(      "path": "runs/bridge-tasks/.../evidence/search-result.json",) Tj T*
+(      "created_at": "...") Tj T*
+(    }) Tj T*
+(  ]) Tj T*
+(}) Tj T*
+(```) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+() Tj T*
+(- Every investigation task shows an evidence list in the sidebar trace.) Tj T*
+(- Final answer can cite the evidence labels.) Tj T*
+() Tj T*
+(## Phase 3: Desktop Tool Adapter) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Give the bridge safe local engineering hands.) Tj T*
+() Tj T*
+(Add a tool registry:) Tj T*
+() Tj T*
+(```text) Tj T*
+(tools/sidebar-bridge-node/src/tool-registry.mjs) Tj T*
+(```) Tj T*
+() Tj T*
+(Current safe evidence tools:) Tj T*
+() Tj T*
+(- `http_get`) Tj T*
+(- `wp_active_theme`) Tj T*
+(- `wp_plugins`) Tj T*
+(- `wp_overview`) Tj T*
+(- `file_read`) Tj T*
+(- `file_search`) Tj T*
+(- `git_status`) Tj T*
+(- `git_diff_summary`) Tj T*
+(- `php_lint`) Tj T*
+(- `node_test`) Tj T*
+(- `chrome_cdp_check`) Tj T*
+() Tj T*
+(Current approval-gated file-change workflow:) Tj T*
+() Tj T*
+(- `file_change_prepare`) Tj T*
+(- `file_change_check`) Tj T*
+(- `file_change_apply`) Tj T*
+() Tj T*
+(Safety:) Tj T*
+() Tj T*
+(- File writes require target path under allowed workspace or explicit user approval.) Tj T*
+(- Generic shell/deploy/database/payment/write-like tool names are blocked before execution.) Tj T*
+(- Local tools run without a shell, with bounded output and timeouts.) Tj T*
+ET
+endstream
+endobj
+22 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 23 0 R >>
+endobj
+23 0 obj
+<< /Length 1698 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(- Local file paths outside the configured workspace are rejected.) Tj T*
+(- Patch workflow prepare creates a backup and staged patched copy first.) Tj T*
+(- Patch workflow apply requires `approved: true` and refuses stale applies if the target) Tj T*
+(changed after backup.) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+() Tj T*
+(- Tool calls are logged into task evidence.) Tj T*
+(- Risky tool requests ask the user before execution.) Tj T*
+() Tj T*
+(## Phase 4: WordPress Support Toolkit) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Make Directorist/WordPress debugging repeatable.) Tj T*
+() Tj T*
+(Add:) Tj T*
+() Tj T*
+(```text) Tj T*
+(tools/sidebar-bridge-node/src/wordpress-tools.mjs) Tj T*
+(```) Tj T*
+() Tj T*
+(Capabilities:) Tj T*
+() Tj T*
+(- login with cookies) Tj T*
+(- follow redirects) Tj T*
+(- read admin pages) Tj T*
+(- read active theme from Themes page) Tj T*
+(- read theme editor file) Tj T*
+(- submit theme editor file) Tj T*
+(- check Code Snippets availability) Tj T*
+(- query WordPress REST) Tj T*
+(- detect Directorist directories) Tj T*
+(- detect listing status/meta through REST/admin HTML) Tj T*
+(- run logged-out page checks) Tj T*
+() Tj T*
+(Prebuilt investigations:) Tj T*
+() Tj T*
+(- Directorist search/radius bug) Tj T*
+(- Directorist add-listing validation bug) Tj T*
+(- Directorist booking display bug) Tj T*
+(- Directorist CSV/export field bug) Tj T*
+(- responsive child-theme CSS bug) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+() Tj T*
+(- Given WP credentials and a page URL, FLUID can produce:) Tj T*
+(  - active theme) Tj T*
+(  - relevant plugin/script list) Tj T*
+(  - request payload) Tj T*
+(  - likely fix surface) Tj T*
+(  - verification plan) Tj T*
+ET
+endstream
+endobj
+24 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 25 0 R >>
+endobj
+25 0 obj
+<< /Length 1444 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+() Tj T*
+(## Phase 5: Patch Workflow) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Make live changes reviewable and rollback-safe.) Tj T*
+() Tj T*
+(Workflow:) Tj T*
+() Tj T*
+(1. Read current file.) Tj T*
+(2. Save local backup.) Tj T*
+(3. Create patched local copy.) Tj T*
+(4. Run syntax check.) Tj T*
+(5. Submit through correct channel.) Tj T*
+(6. Re-read live file.) Tj T*
+(7. Verify public page.) Tj T*
+() Tj T*
+(Required metadata:) Tj T*
+() Tj T*
+(```json) Tj T*
+({) Tj T*
+(  "target": "yourspace.global dRestaurant Child functions.php",) Tj T*
+(  "backup": "C:/Users/Arafat/Documents/support/...",) Tj T*
+(  "patched_copy": "C:/Users/Arafat/Documents/support/...",) Tj T*
+(  "syntax_check": "php -l passed",) Tj T*
+(  "live_verify": "public page contains new script") Tj T*
+(}) Tj T*
+(```) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+() Tj T*
+(- No live file edit without backup.) Tj T*
+(- No PHP `functions.php` edit without `php -l`.) Tj T*
+(- No final "fixed" without verification evidence.) Tj T*
+() Tj T*
+(## Phase 6: Browser DevTools Verification) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Verify behavior beyond static HTML.) Tj T*
+() Tj T*
+(Add a Chrome DevTools Protocol helper:) Tj T*
+() Tj T*
+(```text) Tj T*
+(tools/sidebar-bridge-node/src/chrome-cdp.mjs) Tj T*
+(```) Tj T*
+() Tj T*
+(Use cases:) Tj T*
+() Tj T*
+(- emulate geolocation) Tj T*
+(- inspect DOM values after click) Tj T*
+(- check button visibility) Tj T*
+ET
+endstream
+endobj
+26 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 27 0 R >>
+endobj
+27 0 obj
+<< /Length 1635 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(- run mobile viewport check) Tj T*
+(- capture screenshot) Tj T*
+(- inspect console errors) Tj T*
+(- inspect network requests) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+() Tj T*
+(- The tool can open a URL, set viewport, set geolocation, run a JS assertion, and save) Tj T*
+(screenshot/evidence.) Tj T*
+() Tj T*
+(## Phase 7: Memory And Evals) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Turn every failure into a regression test.) Tj T*
+() Tj T*
+(Add:) Tj T*
+() Tj T*
+(```text) Tj T*
+(src/arafatai/evals/support_cases/) Tj T*
+(tools/sidebar-bridge-node/test/support-cases.test.mjs) Tj T*
+(```) Tj T*
+() Tj T*
+(Case format:) Tj T*
+() Tj T*
+(```json) Tj T*
+({) Tj T*
+(  "id": "directorist-geo-duplicate-fields",) Tj T*
+(  "goal": "Geo locating search returns no results",) Tj T*
+(  "given": {) Tj T*
+(    "forms": "multiple Directorist search forms",) Tj T*
+(    "first_form_coords": true,) Tj T*
+(    "submitted_form_coords": false) Tj T*
+(  },) Tj T*
+(  "expected": {) Tj T*
+(    "mode": "investigation",) Tj T*
+(    "fix_surface": "child theme",) Tj T*
+(    "checks": ["request_fields", "published_listing_status", "duplicate_cityLat"]) Tj T*
+(  }) Tj T*
+(}) Tj T*
+(```) Tj T*
+() Tj T*
+(Initial eval cases:) Tj T*
+() Tj T*
+(- WP Reset negative safety wording.) Tj T*
+(- Hidden WordPress login route.) Tj T*
+(- Directorist duplicate geolocation fields.) Tj T*
+(- Draft listing should not be used as public search proof.) Tj T*
+(- Booking dropdown regression should inspect original flow first.) Tj T*
+(- Missing CSV export field should inspect export source and DB/meta key first.) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+ET
+endstream
+endobj
+28 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 29 0 R >>
+endobj
+29 0 obj
+<< /Length 1481 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+() Tj T*
+(- New planner changes must pass support-case evals.) Tj T*
+(- Failed real tasks become new evals before new planner logic is merged.) Tj T*
+() Tj T*
+(## Phase 8: Sidebar UX For Engineering Work) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Make long tasks understandable in the extension UI.) Tj T*
+() Tj T*
+(Add visible sections:) Tj T*
+() Tj T*
+(- Goal) Tj T*
+(- Current mode) Tj T*
+(- Evidence collected) Tj T*
+(- Risk gate) Tj T*
+(- Proposed patch) Tj T*
+(- Verification) Tj T*
+(- Files changed) Tj T*
+(- Next action) Tj T*
+() Tj T*
+(Do not show hidden chain-of-thought.) Tj T*
+() Tj T*
+(Show public trace:) Tj T*
+() Tj T*
+(```text) Tj T*
+(Observed current tab) Tj T*
+(Classified task as Directorist investigation) Tj T*
+(Fetched public search page) Tj T*
+(Found 4 duplicated search forms) Tj T*
+(Verified published listing coordinates) Tj T*
+(Backed up functions.php) Tj T*
+(PHP lint passed) Tj T*
+(Submitted child-theme patch) Tj T*
+(Logged-out verification passed) Tj T*
+(```) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+() Tj T*
+(- User can understand what happened without reading raw logs.) Tj T*
+(- The UI does not pretend to think; it reports real events only.) Tj T*
+() Tj T*
+(## Phase 9: Python Core Integration) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(Move orchestration into the Python-first ArafatAI core while keeping Node bridge available.) Tj T*
+() Tj T*
+(Python owns:) Tj T*
+() Tj T*
+(- agent routing) Tj T*
+(- long-term memory) Tj T*
+ET
+endstream
+endobj
+30 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 31 0 R >>
+endobj
+31 0 obj
+<< /Length 1585 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(- eval runner) Tj T*
+(- planning policy) Tj T*
+(- PR-gated self-improvement) Tj T*
+() Tj T*
+(Node bridge remains:) Tj T*
+() Tj T*
+(- lightweight sidebar bridge) Tj T*
+(- browser and Chrome-specific adapter) Tj T*
+(- optional dependency-free runtime for quick testing) Tj T*
+() Tj T*
+(Acceptance:) Tj T*
+() Tj T*
+(- Chrome sidebar can call either Node-only bridge or Python core bridge using the same JSON) Tj T*
+(contract.) Tj T*
+() Tj T*
+(## Phase 10: PR-Gated Self Improvement) Tj T*
+() Tj T*
+(Goal:) Tj T*
+() Tj T*
+(FLUID can propose its own improvement, but cannot silently merge it.) Tj T*
+() Tj T*
+(Workflow:) Tj T*
+() Tj T*
+(1. Detect repeated failure.) Tj T*
+(2. Write eval case.) Tj T*
+(3. Patch planner/tool code.) Tj T*
+(4. Run tests.) Tj T*
+(5. Create branch.) Tj T*
+(6. Prepare PR summary.) Tj T*
+(7. Human reviews and merges.) Tj T*
+() Tj T*
+(Hard rule:) Tj T*
+() Tj T*
+(No auto-merge.) Tj T*
+() Tj T*
+(## First Implementation Order) Tj T*
+() Tj T*
+(Implement in this order:) Tj T*
+() Tj T*
+(1. Commit or review the existing WP Reset safety patch.) Tj T*
+(2. Add `task-classifier.mjs`.) Tj T*
+(3. Add classifier tests for the known bad routes.) Tj T*
+(4. Add Evidence Store.) Tj T*
+(5. Add WordPress HTTP/session tools.) Tj T*
+(6. Add Patch Workflow helper.) Tj T*
+(7. Add Chrome CDP verification helper.) Tj T*
+(8. Add support-case evals.) Tj T*
+(9. Upgrade sidebar UI to show evidence and mode.) Tj T*
+(10. Start Python core integration only after Node bridge behavior is stable.) Tj T*
+() Tj T*
+(## Concrete First Slice) Tj T*
+() Tj T*
+ET
+endstream
+endobj
+32 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 33 0 R >>
+endobj
+33 0 obj
+<< /Length 1585 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(Scope:) Tj T*
+() Tj T*
+(```text) Tj T*
+(Only improve routing and evidence.) Tj T*
+(No full desktop app yet.) Tj T*
+(No risky live-site automation yet.) Tj T*
+(```) Tj T*
+() Tj T*
+(Files to add/change:) Tj T*
+() Tj T*
+(- `tools/sidebar-bridge-node/src/task-classifier.mjs`) Tj T*
+(- `tools/sidebar-bridge-node/src/evidence-store.mjs`) Tj T*
+(- `tools/sidebar-bridge-node/src/server.mjs`) Tj T*
+(- `tools/sidebar-bridge-node/src/reasoner.mjs`) Tj T*
+(- `tools/sidebar-bridge-node/test/task-classifier.test.mjs`) Tj T*
+(- `tools/sidebar-bridge-node/test/evidence-store.test.mjs`) Tj T*
+(- `extensions/chrome-sidebar/sidepanel.js`) Tj T*
+() Tj T*
+(Expected result:) Tj T*
+() Tj T*
+(- FLUID stops hallucinated direct fixes.) Tj T*
+(- FLUID says which mode it selected.) Tj T*
+(- FLUID records evidence before suggesting changes.) Tj T*
+(- Browser-only tasks stay fast.) Tj T*
+() Tj T*
+(## Safety Policy) Tj T*
+() Tj T*
+(Blocked without explicit approval:) Tj T*
+() Tj T*
+(- reset) Tj T*
+(- delete) Tj T*
+(- publish) Tj T*
+(- submit production forms) Tj T*
+(- payment) Tj T*
+(- deploy) Tj T*
+(- merge) Tj T*
+(- credential changes) Tj T*
+(- database writes) Tj T*
+(- live theme/plugin edits) Tj T*
+() Tj T*
+(Allowed without approval:) Tj T*
+() Tj T*
+(- read public page) Tj T*
+(- read current tab snapshot) Tj T*
+(- navigate to user-provided URL) Tj T*
+(- inspect page text) Tj T*
+(- take screenshot) Tj T*
+(- query safe public REST endpoints) Tj T*
+(- run local tests) Tj T*
+(- read local files inside repo) Tj T*
+() Tj T*
+(Allowed after confirmation:) Tj T*
+ET
+endstream
+endobj
+34 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 35 0 R >>
+endobj
+35 0 obj
+<< /Length 1587 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+() Tj T*
+(- edit child theme) Tj T*
+(- add Code Snippets) Tj T*
+(- run safe admin save) Tj T*
+(- submit test listing) Tj T*
+(- update local extension code) Tj T*
+(- commit/push repo branch) Tj T*
+() Tj T*
+(## Verification Standards) Tj T*
+() Tj T*
+(For WordPress live fixes:) Tj T*
+() Tj T*
+(- Confirm active theme/plugin.) Tj T*
+(- Back up target file.) Tj T*
+(- Patch local copy.) Tj T*
+(- Lint PHP if PHP changed.) Tj T*
+(- Submit through admin or deployment path.) Tj T*
+(- Re-read live file.) Tj T*
+(- Check logged-out public page.) Tj T*
+(- Verify actual user flow or request result.) Tj T*
+() Tj T*
+(For extension/bridge fixes:) Tj T*
+() Tj T*
+(- Unit tests pass.) Tj T*
+(- At least one task log proves the old failure no longer routes incorrectly.) Tj T*
+(- Manual extension reload test passes.) Tj T*
+() Tj T*
+(For browser UI fixes:) Tj T*
+() Tj T*
+(- Desktop viewport screenshot.) Tj T*
+(- Mobile viewport screenshot.) Tj T*
+(- No text overlap.) Tj T*
+(- No hidden primary control.) Tj T*
+() Tj T*
+(## What Not To Build Yet) Tj T*
+() Tj T*
+(Do not build these first:) Tj T*
+() Tj T*
+(- full desktop app UI) Tj T*
+(- autonomous live-site patching without confirmation) Tj T*
+(- auto-merge self-improvement) Tj T*
+(- broad WordPress database editor) Tj T*
+(- generic "fix everything" mode) Tj T*
+(- hidden reasoning display) Tj T*
+() Tj T*
+(These can wait until the evidence and safety loop is stable.) Tj T*
+() Tj T*
+(## Success Definition) Tj T*
+() Tj T*
+(FLUID becomes useful when it can handle a case like this:) Tj T*
+() Tj T*
+(```text) Tj T*
+ET
+endstream
+endobj
+36 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 37 0 R >>
+endobj
+37 0 obj
+<< /Length 635 >>
+stream
+BT
+/F1 10 Tf
+50 770 Td
+13 TL
+(User: Geo locating search returns no results on this WordPress/Directorist site.) Tj T*
+(FLUID:) Tj T*
+(  - logs in if approved) Tj T*
+(  - checks public form fields) Tj T*
+(  - checks duplicate cityLat/cityLng) Tj T*
+(  - checks listing status) Tj T*
+(  - checks backend query requirements) Tj T*
+(  - proposes child-theme patch) Tj T*
+(  - backs up file) Tj T*
+(  - lints patch) Tj T*
+(  - applies patch) Tj T*
+(  - verifies logged-out search returns listings) Tj T*
+(  - explains exactly what changed) Tj T*
+(```) Tj T*
+() Tj T*
+(That is the engineering standard to implement toward.) Tj T*
+() Tj T*
+ET
+endstream
+endobj
+xref
+0 38
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000226 00000 n 
+0000000296 00000 n 
+0000000422 00000 n 
+0000002851 00000 n 
+0000002977 00000 n 
+0000004577 00000 n 
+0000004703 00000 n 
+0000006282 00000 n 
+0000006410 00000 n 
+0000007837 00000 n 
+0000007965 00000 n 
+0000009769 00000 n 
+0000009897 00000 n 
+0000011944 00000 n 
+0000012072 00000 n 
+0000013808 00000 n 
+0000013936 00000 n 
+0000015389 00000 n 
+0000015517 00000 n 
+0000017148 00000 n 
+0000017276 00000 n 
+0000019027 00000 n 
+0000019155 00000 n 
+0000020652 00000 n 
+0000020780 00000 n 
+0000022468 00000 n 
+0000022596 00000 n 
+0000024130 00000 n 
+0000024258 00000 n 
+0000025896 00000 n 
+0000026024 00000 n 
+0000027662 00000 n 
+0000027790 00000 n 
+0000029430 00000 n 
+0000029558 00000 n 
+trailer
+<< /Size 38 /Root 1 0 R >>
+startxref
+30245
+%%EOF

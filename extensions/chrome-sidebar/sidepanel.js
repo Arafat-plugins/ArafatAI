@@ -28,7 +28,21 @@ let pendingAttachments = [];
 let activeTaskId = null;
 let activeTraceGroup = null;
 let activeTraceList = null;
+let activeTaskOverview = null;
 let activeTraceCount = 0;
+let renderedTaskClassificationKey = '';
+let renderedEvidenceKeys = new Set();
+
+const TASK_OVERVIEW_FIELDS = [
+  ['goal', 'Goal', 'Waiting for task'],
+  ['mode', 'Mode', 'Unclassified'],
+  ['risk', 'Risk gate', 'Safe'],
+  ['evidence', 'Evidence', 'No evidence yet'],
+  ['patch', 'Patch', 'No patch proposed'],
+  ['verification', 'Verification', 'Not verified yet'],
+  ['files', 'Files changed', 'None'],
+  ['next', 'Next action', 'Starting'],
+];
 
 function scrollThreadToBottom() {
   requestAnimationFrame(() => {
@@ -54,9 +68,11 @@ function updateTraceSummary() {
   const count = activeTraceGroup.querySelector('.steps-count');
   const status = activeTraceGroup.querySelector('.steps-status');
   const hasThinking = Boolean(activeTraceGroup.querySelector('.trace.thinking'));
+  const hasWarn = Boolean(activeTraceGroup.querySelector('.trace.warn'));
   const hasError = Boolean(activeTraceGroup.querySelector('.trace.error'));
 
-  activeTraceGroup.classList.toggle('done', activeTraceCount > 0 && !hasThinking && !hasError);
+  activeTraceGroup.classList.toggle('done', activeTraceCount > 0 && !hasThinking && !hasWarn && !hasError);
+  activeTraceGroup.classList.toggle('warn', hasWarn && !hasError);
   activeTraceGroup.classList.toggle('error', hasError);
 
   if (count) {
@@ -65,11 +81,12 @@ function updateTraceSummary() {
   }
 
   if (status) {
-    status.textContent = hasError ? 'Stopped' : hasThinking ? 'Working' : activeTraceCount ? 'Done' : '';
+    status.textContent = hasError ? 'Stopped' : hasThinking ? 'Working' : hasWarn ? 'Needs approval' : activeTraceCount ? 'Done' : '';
   }
 }
 
 function startTraceGroup() {
+  const overview = createTaskOverview();
   const details = document.createElement('details');
   details.className = 'steps-panel';
 
@@ -84,11 +101,14 @@ function startTraceGroup() {
   list.className = 'steps-list';
 
   details.append(summary, list);
-  els.thread.append(details);
+  els.thread.append(overview, details);
 
+  activeTaskOverview = overview;
   activeTraceGroup = details;
   activeTraceList = list;
   activeTraceCount = 0;
+  renderedTaskClassificationKey = '';
+  renderedEvidenceKeys = new Set();
   updateTraceSummary();
   scrollThreadToBottom();
 }
@@ -96,6 +116,69 @@ function startTraceGroup() {
 function ensureTraceGroup() {
   if (!activeTraceGroup || !activeTraceList) startTraceGroup();
   return activeTraceList;
+}
+
+function createTaskOverview() {
+  const overview = document.createElement('article');
+  overview.className = 'task-overview';
+  overview.setAttribute('aria-label', 'Task overview');
+
+  for (const [key, labelText, defaultValue] of TASK_OVERVIEW_FIELDS) {
+    const row = document.createElement('div');
+    row.className = 'task-overview-row';
+    row.dataset.overviewRow = key;
+
+    const label = document.createElement('span');
+    label.className = 'task-overview-label';
+    label.textContent = labelText;
+
+    const value = document.createElement('span');
+    value.className = 'task-overview-value muted';
+    value.textContent = defaultValue;
+
+    row.append(label, value);
+    overview.append(row);
+  }
+
+  return overview;
+}
+
+function ensureTaskOverview() {
+  if (!activeTaskOverview) startTraceGroup();
+  return activeTaskOverview;
+}
+
+function safeOverviewTone(tone) {
+  return ['ok', 'warn', 'error', 'muted'].includes(tone) ? tone : '';
+}
+
+function overviewCell(text, tone = '') {
+  return { text, tone };
+}
+
+function setTaskOverviewValue(key, value) {
+  if (value === undefined) return;
+  const overview = ensureTaskOverview();
+  const row = overview.querySelector(`[data-overview-row="${key}"]`);
+  if (!row) return;
+
+  const valueEl = row.querySelector('.task-overview-value');
+  if (!valueEl) return;
+
+  const nextValue = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : { text: value };
+  const text = shortenText(nextValue.text || '', 190);
+  const tone = safeOverviewTone(nextValue.tone || '');
+  valueEl.className = tone ? `task-overview-value ${tone}` : 'task-overview-value';
+  valueEl.textContent = text || 'None';
+}
+
+function updateTaskOverview(values = {}) {
+  if (!values || typeof values !== 'object') return;
+  for (const [key, value] of Object.entries(values)) {
+    setTaskOverviewValue(key, value);
+  }
 }
 
 function setStatus(text, thinking = false) {
@@ -659,13 +742,13 @@ function addSnapshotCard(page, screenshot, step) {
   scrollThreadToBottom();
 }
 
-function addTrace(text, detail = '', state = '') {
+function addTrace(text, detail = '', state = '', labelText = '') {
   const traceList = ensureTraceGroup();
   const article = document.createElement('article');
   article.className = state ? `trace ${state}` : 'trace';
 
   const label = document.createElement('span');
-  label.textContent = state === 'thinking' ? 'Working' : 'Trace';
+  label.textContent = labelText || (state === 'thinking' ? 'Working' : 'Trace');
 
   const body = document.createElement('p');
   body.textContent = detail ? `${text}\n${detail}` : text;
@@ -715,8 +798,294 @@ function clearThinkingTraces(state = 'done') {
   updateTraceSummary();
 }
 
+function humanizeToken(value) {
+  return String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function classificationTraceKey(classification) {
+  if (!classification || typeof classification !== 'object') return '';
+  return [
+    classification.task_type || '',
+    classification.domain || '',
+    classification.risk_level || '',
+    Array.isArray(classification.evidence_needed) ? classification.evidence_needed.join(',') : '',
+  ].join('|');
+}
+
+function renderTaskClassification(classification) {
+  if (!classification || typeof classification !== 'object') return;
+
+  const key = classificationTraceKey(classification);
+  if (!key || key === renderedTaskClassificationKey) return;
+  renderedTaskClassificationKey = key;
+
+  const mode = humanizeToken(classification.task_type || 'unknown');
+  const domain = humanizeToken(classification.domain || 'unknown');
+  const risk = humanizeToken(classification.risk_level || 'safe');
+  const evidence = Array.isArray(classification.evidence_needed)
+    ? classification.evidence_needed.map(humanizeToken).filter(Boolean).join(', ')
+    : '';
+  const detail = [
+    `Domain: ${domain}. Risk: ${risk}.`,
+    evidence ? `Evidence needed: ${evidence}.` : '',
+    classification.reason ? `Reason: ${classification.reason}` : '',
+  ].filter(Boolean).join('\n');
+
+  addTrace(`Mode selected: ${mode}.`, detail, '', 'Mode');
+}
+
+function evidenceTraceKey(item) {
+  if (!item || typeof item !== 'object') return '';
+  return item.path || [item.type || '', item.title || '', item.created_at || ''].join('|');
+}
+
+function evidenceText(item) {
+  if (!item || typeof item !== 'object') return '';
+  return [item.title, item.summary, item.type].filter(Boolean).join(' ');
+}
+
+function evidenceTone(item) {
+  const text = evidenceText(item);
+  if (/blocked|denied|needs approval|not allowed|failed|error|timeout|exited with [1-9]/i.test(text)) return 'error';
+  if (/warn|manual|skipped|pending|needs user|needs review/i.test(text)) return 'thinking';
+  if (/passed|verified|completed|success|ok|active theme|plugin rows|assertion passed/i.test(text)) return 'done';
+  return '';
+}
+
+function overviewToneFromEvidence(item) {
+  const tone = evidenceTone(item);
+  if (tone === 'done') return 'ok';
+  if (tone === 'thinking') return 'warn';
+  if (tone === 'error') return 'error';
+  return '';
+}
+
+function evidenceBucket(item) {
+  const type = String(item?.type || '').toLowerCase();
+  const text = evidenceText(item);
+
+  if (type === 'tool_blocked' || /tool blocked|blocked by policy|needs approval/i.test(text)) {
+    return { label: 'Risk gate', tone: 'warn' };
+  }
+
+  if (/^patch_/i.test(type) || /patch|file change/i.test(text)) {
+    return { label: 'Patch', tone: evidenceTone(item) };
+  }
+
+  if (
+    /browser_verification|patch_check|http|wordpress|test|lint/i.test(type) ||
+    /assertion|verified|check|lint|active theme|plugin rows/i.test(text)
+  ) {
+    return { label: 'Verification', tone: evidenceTone(item) };
+  }
+
+  return { label: 'Evidence', tone: evidenceTone(item) };
+}
+
+function evidenceDisplayTitle(item) {
+  const type = String(item?.type || '').toLowerCase();
+  const title = item?.title || humanizeToken(item?.type || 'Evidence');
+  const summary = item?.summary || '';
+
+  if (type === 'browser_verification') {
+    if (/assertion passed/i.test(summary)) return `Browser check passed: ${title}`;
+    if (/assertion failed|failed|error/i.test(summary)) return `Browser check failed: ${title}`;
+    return `Browser check: ${title}`;
+  }
+
+  if (type === 'patch_check') return `Patch check: ${title}`;
+  if (type === 'tool_blocked') return `Blocked: ${title}`;
+  return title;
+}
+
+function renderTaskEvidence(task) {
+  const evidence = Array.isArray(task?.evidence) ? task.evidence : [];
+  for (const item of evidence) {
+    const key = evidenceTraceKey(item);
+    if (!key || renderedEvidenceKeys.has(key)) continue;
+    renderedEvidenceKeys.add(key);
+
+    const bucket = evidenceBucket(item);
+    const title = evidenceDisplayTitle(item);
+    const detail = [
+      item.type ? `Type: ${humanizeToken(item.type)}.` : '',
+      item.summary || '',
+      item.path ? `Path: ${item.path}` : '',
+    ].filter(Boolean).join('\n');
+
+    addTrace(`${bucket.label} logged: ${title}.`, detail, bucket.tone, bucket.label);
+  }
+}
+
+function overviewClassification(classification) {
+  if (!classification || typeof classification !== 'object') {
+    return {
+      mode: overviewCell('Unclassified', 'muted'),
+      risk: overviewCell('Safe', 'ok'),
+    };
+  }
+
+  const mode = humanizeToken(classification.task_type || 'unknown');
+  const domain = humanizeToken(classification.domain || 'unknown');
+  const risk = String(classification.risk_level || 'safe').toLowerCase();
+  const needed = Array.isArray(classification.evidence_needed)
+    ? classification.evidence_needed.map(humanizeToken).filter(Boolean)
+    : [];
+  const riskText = [
+    humanizeToken(risk || 'safe'),
+    needed.length ? `needs ${needed.slice(0, 3).join(', ')}` : '',
+  ].filter(Boolean).join('; ');
+  const riskTone = risk === 'safe' || risk === 'low' ? 'ok' : risk.includes('block') || risk.includes('destructive') ? 'error' : 'warn';
+
+  return {
+    mode: overviewCell(`${mode} / ${domain}`, ''),
+    risk: overviewCell(riskText || 'Safe', riskTone),
+  };
+}
+
+function summarizeRiskForOverview(classification, evidence) {
+  const blocked = latestMatchingEvidence(evidence, (item) => {
+    const type = String(item?.type || '').toLowerCase();
+    return type === 'tool_blocked' || /tool blocked|blocked by policy|needs approval/i.test(evidenceText(item));
+  });
+  if (blocked) {
+    return overviewCell(blocked.summary || blocked.title || 'Tool blocked until approval', 'error');
+  }
+  return overviewClassification(classification).risk;
+}
+
+function latestMatchingEvidence(evidence, matcher) {
+  for (let index = evidence.length - 1; index >= 0; index -= 1) {
+    if (matcher(evidence[index])) return evidence[index];
+  }
+  return null;
+}
+
+function summarizeEvidenceForOverview(evidence) {
+  if (!evidence.length) return overviewCell('No evidence yet', 'muted');
+  const latest = evidence
+    .slice(-2)
+    .map((item) => item.title || humanizeToken(item.type || 'Evidence'))
+    .filter(Boolean);
+  return overviewCell(`${evidence.length} logged${latest.length ? `: ${latest.join(' | ')}` : ''}.`, '');
+}
+
+function summarizePatchForOverview(evidence) {
+  const patch = latestMatchingEvidence(evidence, (item) => /^patch_/i.test(item?.type || '') || /file change|patch/i.test(evidenceText(item)));
+  if (!patch) return overviewCell('No patch proposed', 'muted');
+  const tone = patch.type === 'patch_apply' ? 'ok' : patch.type === 'patch_check' ? overviewToneFromEvidence(patch) || 'warn' : overviewToneFromEvidence(patch);
+  return overviewCell(patch.summary || patch.title || 'Patch evidence logged', tone);
+}
+
+function summarizeVerificationForOverview(evidence) {
+  const verification = latestMatchingEvidence(evidence, (item) => (
+    /browser_verification|patch_check|http|wordpress|test|lint/i.test(item?.type || '') ||
+    /assertion|verified|check|lint|active theme|plugin rows/i.test(evidenceText(item))
+  ));
+  if (!verification) return overviewCell('Not verified yet', 'muted');
+  const type = String(verification.type || '').toLowerCase();
+  const summary = verification.summary || verification.title || 'Verification evidence logged';
+  const tone = overviewToneFromEvidence(verification) || 'ok';
+  if (type === 'browser_verification') {
+    if (/assertion passed/i.test(summary)) return overviewCell(`Browser check passed: ${shortenText(summary, 120)}`, tone);
+    if (/assertion failed|failed|error/i.test(summary)) return overviewCell(`Browser check failed: ${shortenText(summary, 120)}`, 'error');
+    return overviewCell(`Browser check logged: ${shortenText(summary, 120)}`, tone);
+  }
+  return overviewCell(summary, tone);
+}
+
+function summarizeFilesForOverview(evidence) {
+  const fileEvidence = evidence.filter((item) => /^patch_/i.test(item?.type || ''));
+  const files = [];
+
+  for (const item of fileEvidence) {
+    const text = item.summary || '';
+    const match = text.match(/\b(?:for|to)\s+([^.;]+?)(?:\.|;|$)/i);
+    if (match?.[1]) files.push(match[1].trim());
+  }
+
+  const uniqueFiles = [...new Set(files)].filter(Boolean);
+  if (!uniqueFiles.length) return overviewCell('None', 'muted');
+  return overviewCell(uniqueFiles.slice(-2).join(' | '), '');
+}
+
+function updateTaskOverviewFromTask(task) {
+  const evidence = Array.isArray(task?.evidence) ? task.evidence : [];
+  const classification = overviewClassification(task?.task_classification);
+  updateTaskOverview({
+    goal: task?.goal ? shortenText(task.goal, 190) : undefined,
+    mode: classification.mode,
+    risk: summarizeRiskForOverview(task?.task_classification, evidence),
+    evidence: summarizeEvidenceForOverview(evidence),
+    patch: summarizePatchForOverview(evidence),
+    verification: summarizeVerificationForOverview(evidence),
+    files: summarizeFilesForOverview(evidence),
+  });
+}
+
+function updateTaskOverviewFromAgentReply(agentReply) {
+  if (!agentReply || typeof agentReply !== 'object') return;
+
+  if (Array.isArray(agentReply.questions) && agentReply.questions.length) {
+    updateTaskOverview({
+      next: overviewCell(`Waiting for answer: ${agentReply.questions[0]}`, 'warn'),
+      risk: overviewCell(agentReply.needs_approval ? 'Needs approval' : 'Needs user input', 'warn'),
+    });
+    return;
+  }
+
+  if (agentReply.needs_approval) {
+    updateTaskOverview({
+      next: overviewCell('Waiting for approval', 'warn'),
+      risk: overviewCell('Needs approval before continuing', 'warn'),
+    });
+    return;
+  }
+
+  if (agentReply.done) {
+    updateTaskOverview({
+      next: overviewCell('Done', 'ok'),
+    });
+    return;
+  }
+
+  const actions = Array.isArray(agentReply.actions) ? agentReply.actions : [];
+  if (actions.length) {
+    updateTaskOverview({
+      next: overviewCell(formatAction(actions[0]), ''),
+    });
+    return;
+  }
+
+  updateTaskOverview({
+    next: overviewCell('No next action returned', 'warn'),
+  });
+}
+
+function updateTaskOverviewFromActionResult(result) {
+  if (!result || typeof result !== 'object') return;
+  updateTaskOverview({
+    next: overviewCell(result.ok ? 'Action completed' : 'Action blocked or failed', result.ok ? 'ok' : 'error'),
+    verification: overviewCell(result.message || (result.ok ? 'Last action completed' : 'Last action failed'), result.ok ? 'ok' : 'error'),
+  });
+}
+
+function renderTaskTelemetry(task) {
+  updateTaskOverviewFromTask(task);
+  renderTaskClassification(task?.task_classification);
+  renderTaskEvidence(task);
+}
+
 function formatAction(action) {
   const type = String(action?.type || 'action');
+  if (isBridgeToolAction(action)) {
+    const tool = normalizeText(action?.tool || action?.name || action?.target || '');
+    return tool ? `${type}: ${tool}` : type;
+  }
   const target = normalizeText(action?.target || action?.value || action?.url || '');
   return target ? `${type}: ${target}` : type;
 }
@@ -733,6 +1102,67 @@ function normalizeAgentAction(action) {
   }
 
   return next;
+}
+
+function isBridgeToolAction(action) {
+  const type = String(action?.type || '').toLowerCase();
+  return type === 'tool' || type === 'run_tool';
+}
+
+function parseToolInput(action) {
+  if (action?.input && typeof action.input === 'object' && !Array.isArray(action.input)) return action.input;
+  if (action?.args && typeof action.args === 'object' && !Array.isArray(action.args)) return action.args;
+
+  const raw = action?.input || action?.args || action?.value || '';
+  if (!raw || typeof raw !== 'string') return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function runBridgeToolAction(action) {
+  if (!activeTaskId) {
+    return {
+      ok: false,
+      message: 'Tool action needs an active task checkpoint.',
+      action,
+    };
+  }
+
+  const tool = normalizeText(action.tool || action.name || action.target || '');
+  if (!tool) {
+    return {
+      ok: false,
+      message: 'Tool action did not specify a tool name.',
+      action,
+    };
+  }
+
+  try {
+    const data = await bridgePost(`/tasks/${activeTaskId}/tool`, {
+      tool,
+      input: parseToolInput(action),
+    });
+    if (data.task) renderTaskTelemetry(data.task);
+    const evidence = data.evidence || {};
+    const evidenceText = [evidence.title, evidence.summary].filter(Boolean).join('. ');
+    return {
+      ok: data.ok !== false,
+      message: evidenceText || `Tool ${tool} completed.`,
+      action,
+      result: data.result || null,
+      task: data.task || null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error?.message || `Tool ${tool} failed.`,
+      action,
+    };
+  }
 }
 
 function renderReasoning(agentReply, source) {
@@ -1209,6 +1639,9 @@ function latestPlanEvent(task, step) {
 }
 
 async function planTask(taskId, goal, page, taskState, attachments = [], maxPolls = MAX_PLAN_POLLS) {
+  updateTaskOverview({
+    next: overviewCell(`Planning step ${taskState.step}/${MAX_AGENT_STEPS}`, ''),
+  });
   const planningTrace = addTrace(`Planner requested for step ${taskState.step}/${MAX_AGENT_STEPS}.`, '', 'thinking');
   await bridgePost(`/tasks/${taskId}/plan-async`, {
     page,
@@ -1232,6 +1665,7 @@ async function planTask(taskId, goal, page, taskState, attachments = [], maxPoll
       }
     }
     const data = await bridgeGet(`/tasks/${taskId}`);
+    renderTaskTelemetry(data.task);
     const plan = latestPlanEvent(data.task, taskState.step);
     if (!plan) continue;
     if (waitingTrace) setTraceState(waitingTrace, plan.ok ? 'done' : 'error');
@@ -1241,6 +1675,7 @@ async function planTask(taskId, goal, page, taskState, attachments = [], maxPoll
     }
     setTraceState(planningTrace, 'done');
     const agentReply = parseAgentReply(plan.text || '');
+    updateTaskOverviewFromAgentReply(agentReply);
     renderReasoning(agentReply, plan.source || '');
     return { agentReply, plan };
   }
@@ -1261,6 +1696,7 @@ async function planTask(taskId, goal, page, taskState, attachments = [], maxPoll
     const agentReply = parseAgentReply(fallback.text || '');
     if (waitingTrace) setTraceState(waitingTrace, 'done');
     setTraceState(planningTrace, 'done');
+    updateTaskOverviewFromAgentReply(agentReply);
     addTrace('Async planner timed out, fast local fallback returned a plan.');
     renderReasoning(agentReply, fallback.source || '');
     return { agentReply, plan: fallback };
@@ -1499,6 +1935,10 @@ async function runAgentAction(action, goal = '', preferredTab = null) {
     };
   }
 
+  if (isBridgeToolAction(action)) {
+    return runBridgeToolAction(action);
+  }
+
   const tab = await focusTaskTab(preferredTab);
   const tabResult = await runTabAction(action, tab);
   if (tabResult) return tabResult;
@@ -1523,6 +1963,12 @@ async function runAgentAction(action, goal = '', preferredTab = null) {
 }
 
 async function runAgentTask(goal, attachments = []) {
+  activeTaskId = null;
+  startTraceGroup();
+  updateTaskOverview({
+    goal: goal || 'Uploaded image task',
+    next: overviewCell('Creating task checkpoint', ''),
+  });
   const task = await startTask(goal, attachments);
   activeTaskId = task.id;
   const initialTab = await activeTab();
@@ -1532,8 +1978,8 @@ async function runAgentTask(goal, attachments = []) {
   const planPollLimit = plannerPollLimitForGoal(goal);
   const approvalContext = approvalContextForGoal(goal);
 
-  startTraceGroup();
   addTrace(`Task checkpoint created: ${activeTaskId.slice(0, 8)}.`);
+  renderTaskTelemetry(task);
 
   for (let step = 1; step <= MAX_AGENT_STEPS; step += 1) {
     setStatus(`Working ${step}/${MAX_AGENT_STEPS}...`, true);
@@ -1588,6 +2034,7 @@ async function runAgentTask(goal, attachments = []) {
       const result = await runAgentAction(action, approvalContext, initialTab);
       setTraceState(actionTrace, result.ok ? 'done' : 'error');
       observations.push(result);
+      updateTaskOverviewFromActionResult(result);
       addTrace(result.ok ? 'Action completed.' : 'Action blocked/failed.', result.message, result.ok ? 'done' : 'error');
       await recordTaskEvent(activeTaskId, {
         kind: 'observation',
@@ -1615,6 +2062,9 @@ async function runAgentTask(goal, attachments = []) {
     status: 'step_limit',
     step: MAX_AGENT_STEPS,
     message: `Stopped after ${MAX_AGENT_STEPS} steps.`,
+  });
+  updateTaskOverview({
+    next: overviewCell(`Stopped after ${MAX_AGENT_STEPS} steps`, 'warn'),
   });
 
   return [
@@ -1647,6 +2097,10 @@ async function sendMessage() {
   } catch (error) {
     clearThinkingTraces('error');
     const message = error.message || String(error);
+    updateTaskOverview({
+      next: overviewCell('Stopped', 'error'),
+      verification: overviewCell(message, 'error'),
+    });
     addMessage('assistant', message);
     rememberTaskResult(goal, message, 'error');
     setStatus(statusForError(error));
